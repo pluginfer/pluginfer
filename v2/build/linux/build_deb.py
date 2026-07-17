@@ -211,8 +211,13 @@ def build_deb(
     deb_path = out_dir / f"{pkg_name}.deb"
 
     if shutil.which("dpkg-deb"):
+        # -Zgzip: modern dpkg defaults to zstd (control.tar.zst), which
+        # older tooling can't read and which diverges from the manual
+        # ar-pack fallback below. Forcing gzip keeps the artifact format
+        # identical no matter which host built it.
         subprocess.check_call(
-            ["dpkg-deb", "--build", "--root-owner-group", str(pkg), str(deb_path)],
+            ["dpkg-deb", "--build", "-Zgzip", "--root-owner-group",
+             str(pkg), str(deb_path)],
         )
     else:
         _ar_pack_manual(pkg, deb_path)

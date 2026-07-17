@@ -55,14 +55,14 @@ def test_private_swarm_isolation():
     # 5. Check Results
     # Public worker should find Public Coordinator
     pub_found = public_worker.search_for_coordinator(timeout=2)
-    if pub_found and pub_found['tcp_port'] == 8001:
+    if pub_found and pub_found['port'] == 8001:
         print("✅ [PASS] Public Worker found Public Coordinator.")
     else:
         print(f"❌ [FAIL] Public Worker found: {pub_found}")
         
     # Private worker should find Private Coordinator
     priv_found = private_worker.search_for_coordinator(timeout=2)
-    if priv_found and priv_found['tcp_port'] == 8002:
+    if priv_found and priv_found['port'] == 8002:
         print("✅ [PASS] Private Worker found Private Coordinator.")
     elif priv_found:
         print(f"❌ [FAIL] Private Worker found WRONG Coordinator: {priv_found}")

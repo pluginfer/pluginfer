@@ -240,6 +240,10 @@ class MeshDiscovery:
                     # Use the sender's IP address from the socket, not the message
                     sender_ip = addr[0]
                     
+                    # Normalized peer record — the schema every consumer
+                    # (found_coordinator, on_peer_found) reads. Note the
+                    # wire field is 'tcp_port' but the record key is
+                    # 'port'; keep it that way or update ALL readers.
                     info = {
                         'ip': sender_ip,
                         'port': message.get('tcp_port'),
