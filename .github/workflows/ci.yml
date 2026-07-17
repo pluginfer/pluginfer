@@ -9,6 +9,8 @@ on:
 jobs:
   test:
     runs-on: ${{ matrix.os }}
+    # A hung test must fail with logs, not burn 6 GitHub-hosted hours.
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -46,13 +48,14 @@ jobs:
         env:
           PLUGINFER_TEST_MODE: "1"
         run: |
-          pip install coverage
+          pip install coverage pytest-timeout
           # Coverage scope matches what THIS job runs: tests/ exercises
           # core+api. The ai/ package has its own suite (ai/) that CI v0
           # does not run — counting it here made the gate measure the
           # wrong thing. No -x: a matrix run should report every failure
-          # at once, not one per push.
-          coverage run --source=core,api -m pytest tests/ -q
+          # at once, not one per push. --timeout converts a silent hang
+          # into a named failure (3 minutes dwarfs the slowest real test).
+          coverage run --source=core,api -m pytest tests/ -q --timeout=180 --timeout-method=thread
           coverage report --fail-under=60 --skip-covered
 
       - name: Coverage XML for upload
