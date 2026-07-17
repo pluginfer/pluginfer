@@ -12,6 +12,8 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![Honest status](https://img.shields.io/badge/claims-audited-brightgreen.svg)](AUDIT.md)
 
+![30-second demo: budget cap refuses a call with HTTP 402, tamper-evident audit chain catches an edited receipt](docs/assets/signet-demo.gif)
+
 ## The problem
 
 73% of enterprises overrun their AI budgets. Token spend broke the
