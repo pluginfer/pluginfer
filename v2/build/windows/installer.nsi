@@ -70,7 +70,7 @@ Section "Pluginfer" SecCore
     ; finish page so the user opts in).
     DetailPrint "Pluginfer ${VERSION} installed (build ${GIT_SHA})."
     DetailPrint "To run as a service:"
-    DetailPrint "  nssm install Pluginfer "$INSTDIR\pluginfer.exe""
+    DetailPrint "  nssm install Pluginfer $\"$INSTDIR\pluginfer.exe$\""
 SectionEnd
 
 Section "Uninstall"
