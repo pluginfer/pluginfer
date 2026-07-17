@@ -40,9 +40,10 @@ if "torch" not in sys.modules:
     sys.path[:] = [p for p in sys.path if Path(p).resolve() != v2]
     try:
         import torch  # noqa: F401  - cached in sys.modules
-    except OSError:
-        # If even system torch can't load, leave sys.path restored and let
-        # the failing test surface the error directly.
+    except (OSError, ImportError):
+        # torch broken OR simply not installed (lean CI envs): this
+        # block is a warm-up cache, never a hard dependency — tests that
+        # truly need torch surface their own error.
         pass
     finally:
         sys.path[:] = saved
