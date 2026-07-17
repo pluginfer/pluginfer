@@ -55,7 +55,6 @@ a = Analysis(
         ('../v2/ai/filum/hpa',               'ai/filum/hpa'),
         # The whole repo as searchable corpus + provenance docs.
         ('../v2',            'v2'),
-        ('../WORKLOG.md',    '.'),
         ('../README.md',     '.'),
     ],
     hiddenimports=[

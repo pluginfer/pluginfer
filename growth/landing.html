@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pluginfer — the OpenAI/Anthropic shim that costs 1/35 the price.</title>
+  <meta property="og:title" content="Pluginfer — drop-in OpenAI/Anthropic shim, 1/35 the price." />
+  <meta property="og:description" content="OPENAI_BASE_URL=http://localhost:11434/v1 and your existing app routes through a decentralised compute mesh. Zero code changes." />
+  <style>
+    :root {
+      --bg: #0a0d18; --bg-elev: #131826; --fg: #ecf2ff; --muted: #8c95ad;
+      --accent: #6ce5b8; --warn: #f9b66c;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+                 font: 16px/1.6 -apple-system, "SF Pro Display", Inter, Segoe UI,
+                       Roboto, Helvetica, Arial, sans-serif; }
+    main { max-width: 880px; margin: 0 auto; padding: 64px 24px 96px; }
+    .hero h1 { font-size: 52px; line-height: 1.05; margin: 0 0 14px;
+               letter-spacing: -0.025em; font-weight: 700; }
+    .hero h1 .accent { color: var(--accent); }
+    .hero p.sub { font-size: 19px; color: var(--muted); margin: 0 0 28px;
+                  max-width: 640px; }
+    .badge { display: inline-block; background: rgba(108,229,184,0.08);
+             color: var(--accent); padding: 6px 12px; border-radius: 999px;
+             font-size: 13px; letter-spacing: 0.03em; font-weight: 500;
+             margin-bottom: 18px; }
+    pre.cmd { background: var(--bg-elev); color: var(--fg); padding: 18px 22px;
+              border-radius: 12px; overflow-x: auto; font-size: 14px;
+              line-height: 1.6; margin: 16px 0; border: 1px solid rgba(255,255,255,0.05); }
+    pre.cmd .kw { color: var(--warn); }
+    section { margin: 56px 0; }
+    section h2 { font-size: 26px; margin: 0 0 18px; letter-spacing: -0.01em; }
+    .grid { display: grid; gap: 18px; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+    .card { background: var(--bg-elev); border-radius: 14px; padding: 22px;
+            box-shadow: 0 2px 12px rgba(0,0,0,0.25); }
+    .card h3 { font-size: 18px; margin: 0 0 8px; }
+    .card p { margin: 0; color: var(--muted); font-size: 15px; }
+    form.waitlist { display: flex; gap: 10px; margin: 28px 0 12px; flex-wrap: wrap; }
+    form.waitlist input { flex: 1 1 280px; padding: 14px 16px; border-radius: 10px;
+                          border: 1px solid rgba(255,255,255,0.1);
+                          background: var(--bg-elev); color: var(--fg); font-size: 15px; }
+    form.waitlist button { padding: 14px 22px; border-radius: 10px; border: 0;
+                           background: var(--accent); color: #061a13;
+                           font-weight: 600; cursor: pointer; font-size: 15px; }
+    form.waitlist button:disabled { opacity: 0.5; }
+    .status { color: var(--muted); font-size: 14px; margin-top: 8px; }
+    footer { margin-top: 80px; color: var(--muted); font-size: 13px;
+             border-top: 1px solid rgba(255,255,255,0.06); padding-top: 24px; }
+    .links a { color: var(--accent); margin-right: 18px; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <span class="badge">Closed beta · self-funded · 678 tests green</span>
+      <h1>The OpenAI shim that costs <span class="accent">1/35 the price</span>.</h1>
+      <p class="sub">
+        One env-var flip. Your existing LangChain / LlamaIndex / agent stack runs
+        through a decentralised compute mesh — consumer-GPU slack underbidding
+        H100 clusters on the workloads that don't need them. Every call leaves a
+        signed audit receipt the EU AI Act will demand. Pluginfer is the only
+        network that ships them by default.
+      </p>
+      <pre class="cmd">
+<span class="kw">export</span> OPENAI_BASE_URL=http://localhost:11434/v1
+<span class="kw">export</span> ANTHROPIC_BASE_URL=http://localhost:11434
+<span class="kw">docker</span> run -d -p 11434:11434 pluginfer/devserver:latest
+<span class="kw">python</span> my_existing_app.py
+</pre>
+      <form class="waitlist" id="waitlist" novalidate>
+        <input type="email" id="email" placeholder="you@company.com" required />
+        <button type="submit" id="submit">Get alpha access</button>
+      </form>
+      <div class="status" id="status">Closed alpha · ~50 design partners admitted per week.</div>
+    </section>
+
+    <section>
+      <h2>Why now</h2>
+      <div class="grid">
+        <div class="card">
+          <h3>Cost-physics</h3>
+          <p>Consumer-GPU electricity floor + sunk-cost economics underbids H100 capex
+             on roughly 70% of production workloads. We measure $/useful-token live.</p>
+        </div>
+        <div class="card">
+          <h3>Compliance moat</h3>
+          <p>Every Pluginfer call ships a cryptographically signed PNIS-Receipt
+             with model+input+output+cost+energy+carbon. AWS / OpenAI / Anthropic
+             literally cannot match.</p>
+        </div>
+        <div class="card">
+          <h3>Zero migration cost</h3>
+          <p>Your OpenAI/Anthropic SDK code stays unchanged. We translate the wire
+             schema; the auction routes the cheapest qualifying provider.</p>
+        </div>
+        <div class="card">
+          <h3>Supply opens to 3B devices</h3>
+          <p>The browser-tab provider means any Chromium device becomes a candidate
+             node — no binary install, no GPU drivers, no friction.</p>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>What's live today</h2>
+      <ul>
+        <li>678 tests passing across crypto, BFT, slash-evidence, sandbox, payments, auctions, receipts.</li>
+        <li>OpenAI/Anthropic devserver shim — byte-compatible with the upstream SDK contracts.</li>
+        <li>Per-token SSE streaming, signed PNIS receipts, public receipts leaderboard.</li>
+        <li>OFAC sanctions screening + per-/24 Sybil rate-limit + WebGPU adapter fingerprinting.</li>
+        <li>Energy + carbon disclosure on every receipt (EU AI Act 2026 ready).</li>
+        <li>1099-NEC / EU VAT-MOSS / India GSTR-1 draft emitters for the operator.</li>
+        <li>Two-process realwire demo (gateway + provider + buyer) green in CI.</li>
+      </ul>
+    </section>
+
+    <footer>
+      <div class="links">
+        <a href="https://github.com/pluginfer/pluginfer">github</a>
+        <a href="/docs/architecture.html">architecture</a>
+        <a href="/docs/SECURITY.html">security</a>
+        <a href="/docs/AML_POLICY.html">aml policy</a>
+        <a href="mailto:hello@pluginfer.network">hello@</a>
+      </div>
+      <p>Pluginfer is in closed alpha. Compute settles in USD via Stripe Connect with
+         OFAC + AML controls per <a href="/docs/AML_POLICY.html">policy</a>.
+         Signed audit receipts on every call.</p>
+    </footer>
+  </main>
+  <script>
+    document.getElementById("waitlist").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const email = document.getElementById("email").value.trim();
+      const status = document.getElementById("status");
+      const submit = document.getElementById("submit");
+      if (!email) return;
+      submit.disabled = true;
+      status.textContent = "Submitting…";
+      try {
+        const r = await fetch("/api/waitlist", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email }),
+        });
+        if (!r.ok) throw new Error("status " + r.status);
+        status.textContent = "Thanks! We'll email you within 72 hours.";
+        document.getElementById("email").value = "";
+      } catch (err) {
+        status.textContent = "Could not submit — email hello@pluginfer.network.";
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>

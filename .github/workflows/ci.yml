@@ -47,7 +47,12 @@ jobs:
           PLUGINFER_TEST_MODE: "1"
         run: |
           pip install coverage
-          coverage run --source=core,api,ai -m pytest tests/ -x -q
+          # Coverage scope matches what THIS job runs: tests/ exercises
+          # core+api. The ai/ package has its own suite (ai/) that CI v0
+          # does not run — counting it here made the gate measure the
+          # wrong thing. No -x: a matrix run should report every failure
+          # at once, not one per push.
+          coverage run --source=core,api -m pytest tests/ -q
           coverage report --fail-under=60 --skip-covered
 
       - name: Coverage XML for upload

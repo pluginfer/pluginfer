@@ -260,7 +260,10 @@ TODO.md
 INVENTIONS.md
 RESEARCH_PLAN.md
 STUB_INVENTORY.txt
-growth/
+# growth/ code ships (waitlist API + landing); marketing docs stay private
+growth/LAUNCH_KIT.md
+growth/cold_dm_template.md
+growth/__pycache__/
 research/
 v2/ADVANCED_TOKEN_FEATURES.md
 v2/COMPARISON.md
