@@ -192,10 +192,12 @@ def test_build_deb_control_metadata_lists_pluginfer(tmp_path: Path) -> None:
     control_gz = members["control.tar.gz"]
     control_tar = io.BytesIO(gzip.decompress(control_gz))
     with tarfile.open(fileobj=control_tar, mode="r") as tf:
-        files = tf.getnames()
-        assert "control" in files
-        # Read control file
-        with tf.extractfile("control") as f:
+        # dpkg-deb prefixes members with "./"; the stdlib fallback does
+        # not. Normalize so the test accepts both producers.
+        names = {n[2:] if n.startswith("./") else n: n
+                 for n in tf.getnames()}
+        assert "control" in names
+        with tf.extractfile(names["control"]) as f:
             control = f.read().decode()
     assert "Package: pluginfer" in control
     assert "Version: 1.0.0" in control

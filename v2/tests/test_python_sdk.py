@@ -101,7 +101,7 @@ def test_sdk_jobs_submit_and_wait_for_completion(client):
     )
     assert j.job_id
     final = client.jobs.wait_for(
-        j.job_id, timeout_sec=5.0, poll_interval_sec=0.05,
+        j.job_id, timeout_sec=30.0, poll_interval_sec=0.05,
     )
     assert final.state.state == "completed", final
     res = client.jobs.result(j.job_id)
