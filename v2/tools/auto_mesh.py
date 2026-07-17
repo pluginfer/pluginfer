@@ -860,6 +860,41 @@ def build_node_app(*, my_pubkey: str, my_wallet, node_id: str):
                          "configured payment gateway) to enable."}))
         return None
 
+    @app.post("/v1/testnet/faucet")
+    async def v1_testnet_faucet(request: Request):
+        """Self-serve starter credit so anyone who joins can try the
+        mesh as a buyer — TESTNET ONLY, once per wallet. Deliberately
+        NOT behind the admin key: automation for newcomers is the
+        point, idempotency is the abuse guard, and in mainnet mode this
+        endpoint refuses outright (operator-minted mainnet balance
+        would be a treasury subsidy, which this project never does)."""
+        if _economics_mode() != "testnet":
+            return JSONResponse(status_code=403, content=_stamp_economics({
+                "error": "faucet exists only under testnet economics"}))
+        if svc.ledger is None:
+            return JSONResponse(status_code=503, content={
+                "error": "money ledger not attached"})
+        from decimal import Decimal as _D
+        from core.buyer_ledger import FaucetAlreadyGranted
+        try:
+            body = await request.json()
+            wallet_id = str(body["wallet_id"]).strip()
+            if not wallet_id:
+                raise ValueError("wallet_id required")
+            amount = _D(os.environ.get(
+                "PLUGINFER_TESTNET_FAUCET_USD", "25"))
+            w = svc.ledger.faucet_grant(wallet_id, amount)
+        except FaucetAlreadyGranted as e:
+            return JSONResponse(status_code=409,
+                                content=_stamp_economics({"error": str(e)}))
+        except (KeyError, ValueError, ArithmeticError) as e:
+            return JSONResponse(status_code=400, content={"error": str(e)})
+        return _stamp_economics({
+            "wallet_id": wallet_id,
+            "granted_usd": str(amount),
+            "available_usd": str(w.available_usd),
+        })
+
     @app.post("/v1/payments/deposit")
     async def v1_payments_deposit(request: Request):
         deny = _money_denied(request) or _cash_denied()

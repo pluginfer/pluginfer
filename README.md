@@ -118,6 +118,18 @@ walked back:
 - Payouts will only ever come from **real buyer payments** — provider
   earnings are never subsidized from a treasury and there are no token
   emissions.
+- **Trying the mesh is free during testnet.** There is nothing to buy:
+  `POST /v1/testnet/faucet {"wallet_id": "you"}` grants a one-time
+  starter balance (default $25 test-USD, once per wallet) so anyone
+  can run real jobs through the real auction/escrow/commission
+  machinery at zero cost. The faucet refuses outright in mainnet mode.
+- **There is no token — at mainnet either.** The ledger is denominated
+  in plain USD. When mainnet opens, buyers deposit real money through
+  a payment processor and providers withdraw real money; onboarding is
+  as exotic as topping up a cloud account. The bootstrap sequence is
+  deliberately usage-first: prove the loop on testnet → free real
+  demand via faucet credits → priced demand from Signet receipts →
+  fiat deposits open last, when there's something real to pay for.
 
 ## Honesty policy
 

@@ -50,6 +50,10 @@ TREASURY_WALLET_ID = "pluginfer-treasury"
 MIN_BALANCE = Decimal("0")
 
 
+class FaucetAlreadyGranted(ValueError):
+    """Second faucet request for the same wallet."""
+
+
 class InsufficientFunds(RuntimeError):
     """Buyer doesn't have enough credit to lock the auction price."""
 
@@ -294,6 +298,30 @@ class BuyerLedger:
             ))
             self._save()
             return w
+
+    FAUCET_NOTE = "testnet-faucet"
+
+    def faucet_grant(
+        self, wallet_id: str, amount_usd: Decimal,
+    ) -> BuyerWallet:
+        """One-time starter credit so anyone can try the mesh as a buyer.
+
+        TESTNET ONLY — the caller (the node endpoint) must refuse this
+        in mainnet mode: an operator-minted mainnet balance would be a
+        treasury subsidy, which this project never does. Idempotent per
+        wallet: a second grant raises, so joining twice can't farm it.
+        """
+        if amount_usd <= Decimal("0"):
+            raise ValueError("faucet amount must be positive")
+        with self._lock:
+            w = self.get_or_create_wallet(wallet_id)
+            if any(e.kind == "credit" and e.note == self.FAUCET_NOTE
+                   for e in w.entries):
+                raise FaucetAlreadyGranted(
+                    f"wallet {wallet_id} already received the testnet "
+                    f"faucet grant")
+            return self.credit(wallet_id, amount_usd,
+                               note=self.FAUCET_NOTE)
 
     def debit(
         self, wallet_id: str, amount_usd: Decimal,
@@ -561,6 +589,7 @@ class BuyerLedger:
 
 __all__ = [
     "BuyerLedger",
+    "FaucetAlreadyGranted",
     "BuyerWallet",
     "COMMISSION_RATE",
     "EscrowRecord",

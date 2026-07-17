@@ -310,3 +310,42 @@ def test_treasury_report_shows_commission_book(tmp_path):
     assert entry["job_id"] == "job-0"
     assert entry["buyer_wallet_id"] == "buyer-1"
     assert entry["amount_usd"] == "0.10000000"
+
+
+# ---------------------------------------------------------------------------
+# Testnet faucet — self-serve starter credit, once per wallet
+# ---------------------------------------------------------------------------
+
+def test_faucet_grants_once_and_survives_restart(tmp_path):
+    from decimal import Decimal
+    from core.buyer_ledger import BuyerLedger, FaucetAlreadyGranted
+    import pytest
+
+    led = BuyerLedger(str(tmp_path))
+    w = led.faucet_grant("newbie-1", Decimal("25"))
+    assert w.available_usd == Decimal("25")
+    # Second request: refused, balance unchanged.
+    with pytest.raises(FaucetAlreadyGranted):
+        led.faucet_grant("newbie-1", Decimal("25"))
+    assert led.get_wallet("newbie-1").available_usd == Decimal("25")
+
+    # Restart: the grant marker persists, so it still can't be farmed.
+    led2 = BuyerLedger(str(tmp_path))
+    with pytest.raises(FaucetAlreadyGranted):
+        led2.faucet_grant("newbie-1", Decimal("25"))
+    assert led2.get_wallet("newbie-1").available_usd == Decimal("25")
+
+
+def test_faucet_credit_spendable_in_escrow(tmp_path):
+    from decimal import Decimal
+    from core.buyer_ledger import BuyerLedger
+
+    led = BuyerLedger(str(tmp_path))
+    led.faucet_grant("newbie-2", Decimal("25"))
+    led.lock_for_job(buyer_wallet_id="newbie-2", job_id="job-F",
+                     amount_usd=Decimal("1.00"))
+    led.release_to_provider(job_id="job-F", provider_wallet_id="prov-9",
+                            commission_rate=Decimal("0.10"))
+    assert led.get_wallet("newbie-2").available_usd == Decimal("24.00")
+    assert led.get_wallet("prov-9").available_usd == Decimal("0.90")
+    assert led.treasury_balance() == Decimal("0.10")
