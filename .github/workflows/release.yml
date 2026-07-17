@@ -115,6 +115,9 @@ jobs:
 
   push-seed-image:
     needs: [manifest-and-release]
+    # Enable by setting repo variable RELEASE_PUBLISH_GHCR=1 —
+    # skipped (not failed) until the registry strategy is decided.
+    if: vars.RELEASE_PUBLISH_GHCR == '1'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -140,6 +143,8 @@ jobs:
   # ---------------------------------------------------------------------
 
   publish-python-sdk:
+    # Needs PyPI trusted-publisher config. Enable: RELEASE_PUBLISH_PYPI=1.
+    if: vars.RELEASE_PUBLISH_PYPI == '1'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -159,6 +164,8 @@ jobs:
           verbose: false
 
   publish-js-sdk:
+    # Needs NPM_TOKEN secret. Enable: RELEASE_PUBLISH_NPM=1.
+    if: vars.RELEASE_PUBLISH_NPM == '1'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -183,6 +190,8 @@ jobs:
           npm publish --provenance --access public
 
   publish-devserver-image:
+    # Enable by setting repo variable RELEASE_PUBLISH_GHCR=1.
+    if: vars.RELEASE_PUBLISH_GHCR == '1'
     runs-on: ubuntu-22.04
     # GitHub refuses the `secrets` context inside `if:` expressions (the
     # whole workflow fails to parse) — hoist the optional Docker Hub

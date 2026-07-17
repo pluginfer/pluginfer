@@ -250,6 +250,7 @@ v2/*.spec
 .env
 .env.local
 *.pem
+!v2/build/release_pubkey.pem
 *.key
 !core/_test_keys/
 
@@ -288,3 +289,4 @@ docs/CHANGELOG.md
 v2/ai/filum/hpa/PATENT_*.md
 v2/tools/patent_packager.py
 v2/tests/test_patent_packager.py
+secrets/
