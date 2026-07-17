@@ -23,7 +23,9 @@
 !endif
 
 Name "${APPNAME} ${VERSION}"
-OutFile "..\..\dist\Pluginfer-${VERSION}-Setup.exe"
+; Output path is owned by build_windows.py (single source of truth) —
+; passed as -DOUT_EXE_REL, relative to this script's directory.
+OutFile "${OUT_EXE_REL}"
 InstallDir "$PROGRAMFILES64\Pluginfer"
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma

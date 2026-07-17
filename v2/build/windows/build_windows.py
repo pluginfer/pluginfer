@@ -60,17 +60,22 @@ def _make_nsi(*, version: str, git_sha: str, out_dir: Path) -> Path:
             "makensis not on PATH; install NSIS from https://nsis.sourceforge.io/"
         )
     rel_app_dir = os.path.relpath(out_dir / "pluginfer", WIN_DIR)
+    setup_exe = out_dir / f"Pluginfer-{version}-Setup.exe"
+    # The .nsi takes the output path from us — previously it hardcoded
+    # ../../dist (a directory nothing creates) while we looked in
+    # out_dir, so CI failed with "Can't open output file".
+    rel_out_exe = os.path.relpath(setup_exe, WIN_DIR)
     subprocess.check_call(
         [
             cmd,
             f"-DVERSION={version}",
             f"-DGIT_SHA={git_sha}",
             f"-DAPP_DIR_REL={rel_app_dir}",
+            f"-DOUT_EXE_REL={rel_out_exe}",
             str(WIN_DIR / "installer.nsi"),
         ],
         cwd=str(WIN_DIR),
     )
-    setup_exe = out_dir / f"Pluginfer-{version}-Setup.exe"
     if not setup_exe.exists():
         raise RuntimeError(f"NSIS did not produce {setup_exe}")
     return setup_exe
