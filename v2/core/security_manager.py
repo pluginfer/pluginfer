@@ -201,9 +201,15 @@ class SecurityManager:
           * the FUNCTION is trusted (e.g. a registered plugin's `execute`).
           * the INPUTS may be hostile (see SecureSandbox / dynamic_executor
             for code-injection isolation; that's a different layer).
-          * we enforce wall-clock timeout, catch all exceptions, set
-            soft memory limit on POSIX, and never let plugin death kill
-            the host process.
+          * we enforce wall-clock timeout, catch all exceptions, and
+            never let plugin death kill (or hang) the host process.
+          * `mem_limit_mb` is accepted but NOT enforced in-process: the
+            only in-process mechanism (setrlimit on RLIMIT_AS) caps the
+            WHOLE host, not the task — on Linux that capped the calling
+            process at 4 GB of address space, thread creation failed,
+            and the host wedged. Memory enforcement needs subprocess
+            isolation; until then we refuse to fake it. Host-level
+            protection lives in host_guard.
 
         Earlier this method was `func(*args, **kwargs)` with a comment
         about a future Docker implementation — i.e. not isolated at all.
@@ -211,38 +217,26 @@ class SecurityManager:
         import concurrent.futures
 
         timeout = float(timeout if timeout is not None else self.DEFAULT_TIMEOUT_S)
-        mem_limit_mb = int(mem_limit_mb if mem_limit_mb is not None
-                           else self.DEFAULT_MEM_LIMIT_MB)
 
-        # Best-effort resource limits on POSIX (Windows: skipped).
+        # NOT a context manager: `with` would shutdown(wait=True) and
+        # block forever on the very worker we just timed out on. On
+        # timeout we cancel, abandon the thread, and return control —
+        # the caller recycles the worker.
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        fut = pool.submit(func, *args, **kwargs)
         try:
-            import resource                                    # type: ignore
-            soft, hard = resource.getrlimit(resource.RLIMIT_AS)
-            if soft == resource.RLIM_INFINITY or soft > mem_limit_mb * 1024 * 1024:
-                resource.setrlimit(
-                    resource.RLIMIT_AS,
-                    (mem_limit_mb * 1024 * 1024, hard),
-                )
-        except (ImportError, OSError, ValueError):
-            pass
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-            fut = pool.submit(func, *args, **kwargs)
-            try:
-                return fut.result(timeout=timeout)
-            except concurrent.futures.TimeoutError:
-                logger.error("plugin execution exceeded %.1fs timeout", timeout)
-                # Best we can do without subprocess: cancel future, leak the
-                # thread (Python can't kill threads). Caller should treat
-                # the worker as compromised and recycle it.
-                fut.cancel()
-                raise TimeoutError(f"plugin exceeded {timeout}s")
-            except MemoryError:
-                logger.error("plugin exceeded %d MB memory limit", mem_limit_mb)
-                raise
-            except Exception as e:
-                logger.error("plugin failed: %s", e)
-                raise
+            result = fut.result(timeout=timeout)
+            pool.shutdown(wait=True)
+            return result
+        except concurrent.futures.TimeoutError:
+            logger.error("plugin execution exceeded %.1fs timeout", timeout)
+            fut.cancel()
+            pool.shutdown(wait=False)
+            raise TimeoutError(f"plugin exceeded {timeout}s")
+        except Exception as e:
+            logger.error("plugin failed: %s", e)
+            pool.shutdown(wait=False)
+            raise
 
     def cleanup(self):
         """Cleanup expired tokens and rate limit history"""
