@@ -1,0 +1,18 @@
+# OFAC SDN — Pluginfer-derived wallet addresses (one per line, lowercase hex).
+#
+# This file is the operator-maintained snapshot of OFAC's SDN list,
+# narrowed to the address form Pluginfer screens against (the
+# leading 40 hex chars of SHA-256(PEM) — see Wallet.generate_address).
+#
+# Operator refresh procedure (weekly, per docs/AML_POLICY.md):
+#   1. Fetch the canonical SDN feed from
+#      https://sanctionssearch.ofac.treas.gov/
+#   2. For every listed digital-currency address, derive the
+#      Pluginfer form by hashing the public-key material.
+#   3. Append one line per address.
+#
+# Lines starting with `#` are comments. Blank lines ignored.
+#
+# Initial state: empty. The screening code returns `allowed=True` on
+# every check until the file is populated, and surfaces a `loaded=0`
+# warning in the audit log so the operator notices.

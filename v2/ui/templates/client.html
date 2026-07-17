@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Pluginfer - Client Portal</title>
+    <style>
+        body {
+            background: #0f0f23;
+            color: white;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+        }
+
+        .card {
+            background: #1a1a2e;
+            padding: 2rem;
+            border-radius: 15px;
+            width: 500px;
+            border: 1px solid #2a2a3e;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+        }
+
+        h2 {
+            color: #667eea;
+            margin-top: 0;
+            margin-bottom: 5px;
+        }
+
+        p {
+            color: #a0a0a0;
+            margin-top: 0;
+        }
+
+        input,
+        select,
+        button,
+        textarea {
+            width: 100%;
+            margin: 0.5rem 0;
+            padding: 0.8rem;
+            border-radius: 5px;
+            border: none;
+            background: #2a2a3e;
+            color: white;
+            font-family: inherit;
+            box-sizing: border-box;
+            outline: none;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border: 1px solid #667eea;
+        }
+
+        textarea {
+            height: 150px;
+            font-family: monospace;
+            text-align: left;
+            resize: vertical;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+            margin-top: 1rem;
+        }
+
+        button:hover {
+            background: #764ba2;
+        }
+
+        button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .result {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #000;
+            border-radius: 5px;
+            font-family: monospace;
+            display: none;
+            text-align: left;
+            overflow-x: auto;
+            max-height: 300px;
+        }
+
+        .input-group {
+            text-align: left;
+            margin-bottom: 0.5rem;
+        }
+
+        label {
+            font-size: 0.8rem;
+            color: #a0a0a0;
+            margin-left: 5px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        .spinner {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: #fff;
+            animation: spin 1s ease-in-out infinite;
+            margin-left: 10px;
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="card">
+        <h2>Client Portal</h2>
+        <p>Decentralized AI Compute Grid</p>
+
+        <div id="loader" style="color: #667eea; margin: 20px;">Loading Plugins...</div>
+
+        <form id="jobForm" class="hidden">
+            <div class="input-group">
+                <label>Select AI Plugin</label>
+                <select id="plugin" name="plugin">
+                    <!-- Dynamic Load -->
+                </select>
+            </div>
+
+            <!-- FILE INPUT -->
+            <div id="fileGroup" class="input-group">
+                <label id="fileLabel">Upload File (Image)</label>
+                <input type="file" id="fileInput" name="file" accept="image/*">
+            </div>
+
+            <!-- TEXT INPUT -->
+            <div id="textGroup" class="input-group hidden">
+                <label>Input Text</label>
+                <input type="text" id="textInput" name="text" placeholder="Type text to analyze...">
+            </div>
+
+            <!-- RAW COMPUTE INPUTS -->
+            <div id="codeGroup" class="input-group hidden">
+                <label>Python Code (Sandbox)</label>
+                <textarea id="codeInput" name="code"
+                    placeholder="def main(**kwargs):\n    return 'Hello from Mesh!'"></textarea>
+
+                <label>Entry Function Name</label>
+                <input type="text" id="funcNameInput" name="function_name" value="main" placeholder="e.g. main">
+
+                <label>Arguments (JSON)</label>
+                <input type="text" id="argsInput" name="args" value="{}" placeholder='{"x": 10, "y": 20}'>
+            </div>
+
+            <button type="submit" id="submitBtn">Submit Job</button>
+        </form>
+
+        <div id="result" class="result">Waiting...</div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const pluginSelect = document.getElementById('plugin');
+            const jobForm = document.getElementById('jobForm');
+            const loader = document.getElementById('loader');
+
+            // 1. Fetch Plugins Dynamically
+            try {
+                const res = await fetch('/api/plugins');
+                const data = await res.json();
+
+                if (data.plugins && data.plugins.length > 0) {
+                    pluginSelect.innerHTML = data.plugins.map(p => {
+                        let rawName = p.name;
+                        // Formatting names nicely
+                        let name = rawName.replace('img_', 'Image: ').replace('txt_', 'Text: ').replace('_', ' ').toUpperCase();
+                        return `<option value="${rawName}">${name}</option>`;
+                    }).join('');
+
+                    // Add special handle for Dynamic if not present (usually hidden sys plugin)
+                    // If registry includes it, good. If not, maybe manually add "Raw Compute" if supported.
+
+                    loader.classList.add('hidden');
+                    jobForm.classList.remove('hidden');
+                    updateUI(); // Trigger UI logic
+                } else {
+                    loader.textContent = "No Plugins Found active on Mesh.";
+                }
+            } catch (e) {
+                loader.textContent = "Failed to load plugins. Node offline?";
+            }
+
+            const fileGroup = document.getElementById('fileGroup');
+            const textGroup = document.getElementById('textGroup');
+            const codeGroup = document.getElementById('codeGroup');
+            const fileInput = document.getElementById('fileInput');
+            const fileLabel = document.getElementById('fileLabel');
+
+            // UI Toggle Logic
+            function updateUI() {
+                const val = pluginSelect.value;
+
+                // Reset
+                fileGroup.classList.add('hidden');
+                textGroup.classList.add('hidden');
+                codeGroup.classList.add('hidden');
+                fileInput.accept = "*/*";
+
+                // Heuristic detection based on plugin naming
+                if (val.includes('dynamic') || val.includes('executor') || val.includes('compute')) {
+                    codeGroup.classList.remove('hidden');
+                } else if (val.includes('txt') || val.includes('sentiment') || val.includes('text')) {
+                    textGroup.classList.remove('hidden');
+                } else if (val.includes('pdf')) {
+                    fileGroup.classList.remove('hidden');
+                    fileInput.accept = ".pdf";
+                    fileLabel.textContent = "Upload PDF Document";
+                } else {
+                    // Default Image Plugins
+                    fileGroup.classList.remove('hidden');
+                    fileInput.accept = "image/*";
+                    fileLabel.textContent = "Upload Image";
+                }
+            }
+
+            pluginSelect.addEventListener('change', updateUI);
+
+            // Form Submit
+            jobForm.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const submitBtn = document.getElementById('submitBtn');
+                submitBtn.disabled = true;
+                submitBtn.innerHTML = 'Processing <span class="spinner"></span>';
+
+                const resDiv = document.getElementById('result');
+                resDiv.style.display = 'block';
+                resDiv.innerHTML = '<span style="color: #f1c40f;">Uploading & Processing...</span>';
+
+                const formData = new FormData();
+                const plugin = pluginSelect.value;
+                formData.append('plugin', plugin);
+
+                // Add inputs based on visibility
+                if (!codeGroup.classList.contains('hidden')) {
+                    formData.append('code', document.getElementById('codeInput').value);
+                    formData.append('function_name', document.getElementById('funcNameInput').value);
+                    formData.append('args', document.getElementById('argsInput').value);
+                } else if (!textGroup.classList.contains('hidden')) {
+                    formData.append('text', document.getElementById('textInput').value);
+                } else {
+                    if (fileInput.files.length > 0) {
+                        formData.append('file', fileInput.files[0]);
+                    }
+                }
+
+                try {
+                    const resp = await fetch('/api/submit_job', { method: 'POST', body: formData });
+                    const data = await resp.json();
+
+                    if (data.status === 'success') {
+                        const taskId = data.task_id;
+                        let processedResult = data.result;
+
+                        // LONG POLLING LOGIC
+                        resDiv.innerHTML = `<h3 style="color:#f1c40f; margin:0 0 10px 0;">Computing...</h3><p>Task ID: ${taskId}</p>`;
+
+                        let attempts = 0;
+                        while (attempts < 30) {
+                            if (processedResult && processedResult.status === 'processing') {
+                                await new Promise(r => setTimeout(r, 2000));
+                                try {
+                                    const statusResp = await fetch(`/api/task_status/${taskId}`);
+                                    if (statusResp.ok) {
+                                        const statusData = await statusResp.json();
+                                        if (statusData.status === 'success') {
+                                            processedResult = statusData.result;
+                                            break; // Done
+                                        }
+                                        // If still processing, loop continues with old processedResult
+                                        // or we can update message if needed
+                                    }
+                                } catch (e) { }
+                                attempts++;
+                            } else {
+                                break;
+                            }
+                        }
+
+                        // Final Render
+                        const rawResult = processedResult.result || processedResult;
+                        const resultData = rawResult.data || rawResult.image_data || rawResult.file_data;
+                        let btnHtml = '';
+
+                        if (resultData && typeof resultData === 'string' && resultData.length > 50) {
+                            let mime = 'application/octet-stream';
+                            let ext = 'bin';
+                            if (plugin.includes('img') || plugin.includes('face')) { mime = 'image/png'; ext = 'png'; }
+                            else if (plugin.includes('pdf')) { mime = 'application/pdf'; ext = 'pdf'; }
+
+                            let src = resultData.replace(/\\s/g, '');
+                            if (src.indexOf('data:') !== 0) src = 'data:' + mime + ';base64,' + src;
+
+                            btnHtml = `<div style="text-align: center; margin-bottom: 15px;"><img src="${src}" style="max-width: 100%; border-radius: 5px; border: 1px solid #333;"></div>
+                                       <a href="${src}" download="result.${ext}" style="display:block; width:100%; background:#2ecc71; color:white; padding:10px; text-align:center; border-radius:5px; text-decoration:none; font-weight:bold;">DOWNLOAD RESULT</a>`;
+                        } else if (rawResult.text || rawResult.sentiment) {
+                            btnHtml = `<div style="padding: 10px; background: #111; color: #2ecc71;">${JSON.stringify(rawResult, null, 2)}</div>`;
+                        } else {
+                            btnHtml = `<pre>${JSON.stringify(rawResult, null, 2)}</pre>`;
+                        }
+
+                        resDiv.innerHTML = `<h3 style="color:#2ecc71; margin:0 0 10px 0;">SUCCESS</h3>` + btnHtml;
+                    } else {
+                        resDiv.innerHTML = `<h3 style="color:#e74c3c; margin:0;">FAILED</h3><p>${data.error || 'Unknown error'}</p>`;
+                    }
+                } catch (err) {
+                    resDiv.textContent = 'Network Error: ' + err.message;
+                }
+
+                submitBtn.disabled = false;
+                submitBtn.innerHTML = 'Submit Job';
+            });
+        });
+    </script>
+</body>
+
+</html>

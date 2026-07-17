@@ -1,0 +1,42 @@
+{
+  "schema": "pluginfer-seed-registry/v2",
+  "generated_at_btc_height": 0,
+  "tofu_mode": false,
+  "notes": "Multi-seed quorum bundle. Each record carries the seed's public key fingerprint + region. The auto_mesh client tries seeds in declared order; first reachable wins. A record is trusted only when at least min_signatures cross-validator signatures sign its (host, port, pubkey_pem) tuple. The operator publishes this file via a signed GitHub release and a pluginfer-update CLI verifies signatures on each pull.",
+  "min_signatures": 2,
+  "records": [
+    {
+      "id": "seed-eu-west",
+      "host": "seed-eu.pluginfer.network",
+      "port": 9000,
+      "region": "eu-west",
+      "registered_at_btc_height": 0,
+      "pubkey_fingerprint_sha256": "00000000000000000000000000000000000000000000000000000000000000ee",
+      "quorum_signatures": []
+    },
+    {
+      "id": "seed-us-east",
+      "host": "seed-us.pluginfer.network",
+      "port": 9000,
+      "region": "us-east",
+      "registered_at_btc_height": 0,
+      "pubkey_fingerprint_sha256": "00000000000000000000000000000000000000000000000000000000000000ff",
+      "quorum_signatures": []
+    },
+    {
+      "id": "seed-ap-south",
+      "host": "seed-sg.pluginfer.network",
+      "port": 9000,
+      "region": "ap-south",
+      "registered_at_btc_height": 0,
+      "pubkey_fingerprint_sha256": "0000000000000000000000000000000000000000000000000000000000000100",
+      "quorum_signatures": []
+    }
+  ],
+  "operator_overrides": {
+    "env_seed_host": "PLUGINFER_SEED_HOST",
+    "env_seed_port": "PLUGINFER_SEED_PORT",
+    "env_seed_pubkey_fp": "PLUGINFER_SEED_PUBKEY_FP",
+    "comment": "Env vars override the records[] list — used for local dev (127.0.0.1:9000) and for closed mesh deployments where the operator runs their own seed cluster. Operator publishes their seed_registry.json over signed HTTPS; pluginfer-update verifies quorum signatures before adopting it. Until min_signatures records carry valid quorum_signatures, the auto_mesh client falls back to env-override OR --gossip-bootstrap injection — never to an unsigned record."
+  }
+}

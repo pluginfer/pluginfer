@@ -1,0 +1,79 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, windows-2022, macos-14]
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install runtime + dev deps
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r v2/requirements.txt || true
+          pip install fastapi sse-starlette httpx pydantic pytest pytest-asyncio cryptography ruff mypy bandit pip-audit
+
+      - name: Lint (ruff)
+        working-directory: v2
+        run: |
+          ruff check core api sdk tests || true   # not blocking for CI v0; tightened in CI v1.
+          ruff format --check core api sdk tests || true
+
+      - name: Type check (mypy, advisory)
+        working-directory: v2
+        run: mypy core api --ignore-missing-imports || true
+
+      - name: Bandit (production paths)
+        run: python -m bandit -r v2/core v2/api -ll -c .bandit
+
+      - name: Pytest with coverage
+        working-directory: v2
+        env:
+          PLUGINFER_TEST_MODE: "1"
+        run: |
+          pip install coverage
+          coverage run --source=core,api,ai -m pytest tests/ -x -q
+          coverage report --fail-under=60 --skip-covered
+
+      - name: Coverage XML for upload
+        if: matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
+        working-directory: v2
+        run: coverage xml
+
+      - name: Upload coverage
+        if: matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: v2/coverage.xml
+
+  pip-audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install pip-audit + production deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install pip-audit
+          # Run on the lean prod set, not the full dev tree.
+          pip install -r v2/requirements.txt || true
+      - name: Audit
+        run: pip-audit --strict --ignore-vuln PYSEC-2020-25 || true

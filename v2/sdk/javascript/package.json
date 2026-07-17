@@ -1,0 +1,50 @@
+{
+  "name": "@pluginfer/sdk",
+  "version": "1.0.0",
+  "description": "JavaScript / TypeScript SDK for Pluginfer — distributed AI compute mesh.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json",
+    "test": "node --test ./test"
+  },
+  "keywords": [
+    "pluginfer",
+    "distributed",
+    "gpu",
+    "ai",
+    "inference",
+    "compute"
+  ],
+  "author": "Pluginfer Team <ops@pluginfer.network>",
+  "homepage": "https://pluginfer.network",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pluginfer/pluginfer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/pluginfer/pluginfer/issues"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "@types/node": "^20.11.0"
+  }
+}

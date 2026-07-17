@@ -1,0 +1,30 @@
+version: "3.8"
+
+services:
+  pluginfer-seed:
+    image: pluginfer-seed:1.0.0
+    build:
+      context: ../..
+      dockerfile: v2/infrastructure/seed_node/Dockerfile
+    container_name: pluginfer-seed
+    restart: always
+    ports:
+      - "9000:9000/tcp"   # REGISTER / PEERS / PING
+      - "9000:9000/udp"   # REGISTER_UDP / INTRODUCE / PUNCH_INVITE / RELAY
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import socket;s=socket.socket();s.settimeout(2);s.connect(('127.0.0.1',9000));s.close()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"

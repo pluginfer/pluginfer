@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTD/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Pluginfer hardened-runtime entitlements.
+
+        Declared capabilities:
+          * Network client + server: needed for the mesh transport
+            (UDP grain protocol, REST API, WebSocket SSE).
+          * Allow JIT: PyTorch / numpy / torch.compile may JIT.
+          * Allow unsigned executable memory: pure-Python codegen
+            (e.g. tensor compilation paths) requires this on macOS 14+.
+          * Allow DYLD environment variables: PyInstaller bootloader
+            sets DYLD_LIBRARY_PATH for bundled .dylibs.
+
+        NOT declared (deliberate restrictions):
+          * Camera, microphone, location, contacts, calendar, photos.
+          * Apple Events / automation outside our own bundle.
+          * App Sandbox is intentionally NOT enabled — distributing
+            via Developer ID + notarization (not the App Store), so
+            sandbox is not required and would block our network/file
+            mesh state directory access.
+
+        Reference: https://developer.apple.com/documentation/security/hardened_runtime
+    -->
+
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <key>com.apple.security.network.server</key>
+    <true/>
+
+    <key>com.apple.security.cs.allow-jit</key>
+    <true/>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+    <key>com.apple.security.cs.allow-dyld-environment-variables</key>
+    <true/>
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+</dict>
+</plist>

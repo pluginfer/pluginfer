@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Pluginfer Block Explorer</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', monospace;
+            background: #0f0f23;
+            color: #e0e0e0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        h1 {
+            color: #667eea;
+            border-bottom: 2px solid #2a2a3e;
+            padding-bottom: 10px;
+        }
+
+        .search-box {
+            width: 100%;
+            padding: 15px;
+            background: #1a1a2e;
+            border: 1px solid #2a2a3e;
+            color: white;
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+
+        .block {
+            background: #1a1a2e;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            border: 1px solid #2a2a3e;
+            padding: 15px;
+        }
+
+        .block-header {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+            border-bottom: 1px solid #333;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+        }
+
+        .hash {
+            color: #f1c40f;
+            word-break: break-all;
+        }
+
+        .tx-list {
+            margin-top: 10px;
+            background: #111;
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        .tx-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 10px;
+            border-bottom: 1px solid #333;
+            padding: 5px 0;
+            font-size: 0.9rem;
+        }
+
+        .tx-row:last-child {
+            border-bottom: none;
+        }
+
+        .label {
+            color: #888;
+            font-size: 0.8rem;
+        }
+
+        .verified-badge {
+            background: #2ecc71;
+            color: black;
+            padding: 2px 5px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>Pluginfer Public Explorer</h1>
+        <input type="text" class="search-box" id="search" placeholder="Search Block Hash or Transaction ID..."
+            onkeyup="filter()">
+
+        <div id="chain-container">
+            <div style="text-align: center;">Loading Blockchain...</div>
+        </div>
+    </div>
+
+    <script>
+        let chainData = [];
+
+        async function loadChain() {
+            try {
+                const res = await fetch('/api/explorer/data');
+                const data = await res.json();
+                chainData = data.chain.reverse(); // Newest first
+                render();
+            } catch (e) {
+                document.getElementById('chain-container').innerHTML = `<p style="color:red">Failed to load chain data.</p>`;
+            }
+        }
+
+        function render(filterText = '') {
+            const container = document.getElementById('chain-container');
+
+            const html = chainData.map(block => {
+                // Search Filter
+                if (filterText) {
+                    const txt = JSON.stringify(block).toLowerCase();
+                    if (!txt.includes(filterText.toLowerCase())) return '';
+                }
+
+                return `
+                <div class="block">
+                    <div class="block-header">
+                        <span>Block #${block.index}</span>
+                        <span style="color: #888;">${new Date(block.timestamp * 1000).toLocaleString()}</span>
+                    </div>
+                    <div style="margin-bottom: 5px;">
+                        <span class="label">HASH:</span> <span class="hash">${block.hash}</span> <span class="verified-badge">VERIFIED</span>
+                    </div>
+                    <div style="margin-bottom: 5px;">
+                        <span class="label">PREV:</span> <span style="color: #666;">${block.previous_hash}</span>
+                    </div>
+                    
+                    <div class="tx-list">
+                        <div class="label" style="margin-bottom:5px;">TRANSACTIONS (${block.transactions.length})</div>
+                        ${block.transactions.map(tx => `
+                            <div class="tx-row">
+                                <div><span class="label">FROM:</span> ${tx.sender.substring(0, 12)}...</div>
+                                <div><span class="label">TO:</span> ${tx.recipient.substring(0, 12)}...</div>
+                                <div><span class="label">AMT:</span> <span style="color: #2ecc71;">${tx.amount} PLG</span></div>
+                                <div><span class="label">FEE:</span> ${tx.fee || 0}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+                `;
+            }).join('');
+
+            container.innerHTML = html || '<p>No matching blocks found.</p>';
+        }
+
+        function filter() {
+            render(document.getElementById('search').value);
+        }
+
+        loadChain();
+        setInterval(loadChain, 5000);
+    </script>
+</body>
+
+</html>

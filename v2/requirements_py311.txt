@@ -1,0 +1,33 @@
+# Pluginfer v2 - Python 3.11 Standard Requirements
+# Use this file to create a clean environment:
+# conda create -n pluginfer python=3.11
+# pip install -r requirements_py311.txt
+
+# --- Core ML ---
+# Standard PyTorch (CPU fallback, required base)
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# DirectML Support (Universal GPU Acceleration for Windows)
+# STRICTLY REQUIRES Python 3.8-3.11 (No 3.12/3.14 support yet)
+torch-directml
+
+# --- Logic & Networking ---
+numpy<2.0.0  # Numpy 2.0 often breaks older libraries
+requests
+psutil
+cryptography>=41.0.0  # For Wallet/Security
+
+# --- Web UI ---
+flask>=3.0.0
+werkzeug>=3.0.0
+
+# --- System & GUI ---
+pystray  # System Tray Icon
+Pillow   # Image processing for Tray/Plugins
+wmi      # Windows Management Instrumentation (Hardware Info)
+
+# --- Utilities ---
+colorama
+tqdm

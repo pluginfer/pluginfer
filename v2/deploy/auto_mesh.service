@@ -1,0 +1,30 @@
+[Unit]
+Description=Pluginfer auto-mesh node
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pluginfer
+Group=pluginfer
+WorkingDirectory=/opt/pluginfer/v2
+Environment=PYTHONUNBUFFERED=1
+Environment=PLUGINFER_LOG_LEVEL=INFO
+EnvironmentFile=-/etc/pluginfer/auto_mesh.env
+# Run via supervisor for auto-restart on crash + crash-loop backoff.
+ExecStart=/opt/pluginfer/.venv/bin/python -m tools.run_node \
+    --seed-host ${PLUGINFER_SEED_HOST} --seed-port ${PLUGINFER_SEED_PORT} \
+    --node-port ${PLUGINFER_NODE_PORT} --bind-ip ${PLUGINFER_PUBLIC_IP}
+Restart=always
+RestartSec=10
+LimitNOFILE=65535
+
+# Hardening.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pluginfer
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

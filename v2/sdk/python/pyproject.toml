@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pluginfer"
+version = "1.0.0"
+description = "Python SDK for Pluginfer — distributed AI compute mesh."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [
+    { name = "Pluginfer Team", email = "ops@pluginfer.network" },
+]
+keywords = ["pluginfer", "distributed", "gpu", "ai", "inference", "compute"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "httpx>=0.27,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "fastapi>=0.110",
+    "sse-starlette>=2",
+    "cryptography>=42",
+]
+
+[project.urls]
+Homepage = "https://pluginfer.network"
+Documentation = "https://docs.pluginfer.network"
+Source = "https://github.com/pluginfer/pluginfer"
+Issues = "https://github.com/pluginfer/pluginfer/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pluginfer*"]

@@ -1,0 +1,44 @@
+# Pluginfer bandit configuration (YAML).
+#
+# Skips below are deliberate -- each one has a security review attached
+# in WORKLOG.md (CP-5 entry) explaining why bandit's default behaviour
+# is wrong for our specific call site.
+#
+# Per-rule suppressions:
+#   B102 exec    -> secure_sandbox.py runs untrusted user code inside a
+#                   prebuilt whitelist namespace (W22 hardening).
+#                   exec IS the feature, not an accident.
+#   B104 0.0.0.0 -> mesh nodes must listen on all interfaces; binding
+#                   to one IP breaks DHCP / changing-network setups.
+#   B310 urllib  -> updater.py only fetches https:// URLs and
+#                   signature-verifies the manifest before trusting
+#                   any artefact (W31).
+
+skips:
+  - B102
+  - B104
+  - B310
+
+exclude_dirs:
+  - "FIXED_v2_SNAPSHOT"
+  - "_archive_v2"
+  - "backups"
+  - "torch"
+  - "torchaudio"
+  - "torchvision"
+  - "numpy"
+  - "PIL"
+  - "certifi"
+  - "charset_normalizer"
+  - "cryptography"
+  - "psutil"
+  - "markupsafe"
+  - "model_cache"
+  - "checkpoints"
+  - "pluginfer_v2_release"
+  - "pluginfer_whitepaper_deploy"
+  - "pluginfer_standalone"
+  - "core_backup_2026-01-29_1813"
+  - "core_backup_before_revert"
+  - "plugins_backup_2026-01-29_1813"
+  - "Pluginfer_v2_FINAL_RELEASE"

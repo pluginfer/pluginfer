@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pluginfer Signet — AI Spend Governance</title>
+<style>
+  /* Self-contained: no CDNs (airgapped enterprise networks).
+     Palette per the validated dataviz reference; single-hue magnitude
+     bars; status colors reserved for good/serious. Light + dark. */
+  .viz-root {
+    color-scheme: light;
+    --surface-1: #fcfcfb; --surface-2: #f1f0ee; --surface-3: #e8e7e4;
+    --text-primary: #0b0b0b; --text-secondary: #52514e; --text-muted: #7a7975;
+    --series-1: #2a78d6; --good: #008300; --serious: #e34948;
+    --warning: #eda100; --grid: #e3e2df;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) .viz-root {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --surface-2: #242423; --surface-3: #2f2f2d;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #93928a;
+      --series-1: #3987e5; --good: #3fae3f; --serious: #e66767;
+      --warning: #c98500; --grid: #3a3a38;
+    }
+  }
+  :root[data-theme="dark"] .viz-root {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --surface-2: #242423; --surface-3: #2f2f2d;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7; --text-muted: #93928a;
+    --series-1: #3987e5; --good: #3fae3f; --serious: #e66767;
+    --warning: #c98500; --grid: #3a3a38;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body.viz-root {
+    background: var(--surface-1); color: var(--text-primary);
+    font: 14px/1.5 system-ui, "Segoe UI", sans-serif;
+    padding: 24px; max-width: 1120px; margin: 0 auto;
+  }
+  h1 { font-size: 21px; font-weight: 650; }
+  .sub { color: var(--text-secondary); margin: 4px 0 16px; font-size: 13px; }
+  .chain { font-size: 12px; padding: 4px 10px; border-radius: 999px;
+           background: var(--surface-2); display: inline-block; }
+  .chain.ok::before { content: "🔒 "; }
+  .chain.bad { color: var(--serious); font-weight: 600; }
+  .chain.bad::before { content: "⚠ "; }
+  .tabs { display: flex; gap: 4px; margin: 8px 0 20px;
+          border-bottom: 1px solid var(--grid); }
+  .tab { padding: 8px 16px; cursor: pointer; color: var(--text-secondary);
+         border-bottom: 2px solid transparent; font-size: 13px; user-select: none; }
+  .tab.active { color: var(--text-primary); border-bottom-color: var(--series-1);
+                font-weight: 600; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .story { background: var(--surface-2); border-radius: 12px; padding: 20px 22px;
+           font-size: 15px; line-height: 1.65; margin-bottom: 18px; }
+  .story b { color: var(--text-primary); }
+  .story .big { font-size: 30px; font-weight: 700; display: block; margin: 4px 0; }
+  .story .g { color: var(--good); } .story .r { color: var(--serious); }
+  .plain-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px,1fr));
+                gap: 12px; }
+  .card { background: var(--surface-2); border-radius: 10px; padding: 16px; }
+  .card .h { font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+  .card .p { color: var(--text-secondary); font-size: 13px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(175px,1fr));
+           gap: 12px; margin-bottom: 22px; }
+  .tile { background: var(--surface-2); border-radius: 10px; padding: 14px 16px; }
+  .tile .label { color: var(--text-secondary); font-size: 12px; }
+  .tile .value { font-size: 25px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .tile .hint { color: var(--text-muted); font-size: 11px; margin-top: 2px; }
+  .tile.saved .value { color: var(--good); }
+  section { margin-bottom: 26px; }
+  h2 { font-size: 14px; font-weight: 650; margin-bottom: 10px; }
+  h2 .note { color: var(--text-muted); font-weight: 400; font-size: 12px; }
+  .barrow { display: grid; grid-template-columns: 230px 1fr 96px;
+            align-items: center; gap: 10px; padding: 3px 0; }
+  .barrow .name { font-size: 13px; overflow: hidden; text-overflow: ellipsis;
+                  white-space: nowrap; }
+  .track { background: var(--surface-3); border-radius: 4px; height: 14px; }
+  .fill { background: var(--series-1); height: 14px; border-radius: 0 4px 4px 0; min-width: 2px; }
+  .fill.neg { background: var(--serious); }
+  .barrow .val { text-align: right; font-variant-numeric: tabular-nums;
+                 color: var(--text-secondary); font-size: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; color: var(--text-secondary); font-weight: 500;
+       border-bottom: 1px solid var(--grid); padding: 6px 8px; position: sticky; top: 0;
+       background: var(--surface-1); }
+  td { padding: 5px 8px; border-bottom: 1px solid var(--grid);
+       font-variant-numeric: tabular-nums; }
+  td.num { text-align: right; }
+  .pos { color: var(--good); } .negv { color: var(--serious); }
+  .kind { font-size: 11px; padding: 1px 7px; border-radius: 999px;
+          background: var(--surface-3); color: var(--text-secondary); }
+  .empty { color: var(--text-muted); font-size: 13px; padding: 10px 0; }
+  .wrap { overflow-x: auto; max-height: 460px; overflow-y: auto; }
+  code { background: var(--surface-3); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+</style>
+</head>
+<body class="viz-root">
+  <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:8px">
+    <h1>Signet · AI Spend Governance</h1>
+    <span id="chain" class="chain">checking…</span>
+  </div>
+  <p class="sub">Every figure below traces to a signed, hash-chained receipt — no estimates unless labelled. Refreshes every 10&nbsp;s.</p>
+
+  <div class="tabs">
+    <div class="tab active" data-p="plain">📖 Plain English</div>
+    <div class="tab" data-p="tech">📊 Technical</div>
+    <div class="tab" data-p="logs">🧾 Logs &amp; audit</div>
+  </div>
+
+  <div class="panel active" id="p-plain">
+    <div class="story" id="story">Loading…</div>
+    <div class="plain-grid">
+      <div class="card"><div class="h">What is a “budget envelope”?</div>
+        <div class="p">A spending limit you set for a team, app, or the whole
+          company. When it’s used up, new AI calls are <b>blocked automatically</b> —
+          you can never get a surprise bill.</div></div>
+      <div class="card"><div class="h">How did we save money?</div>
+        <div class="p">We don’t pay to answer the same question twice (caching),
+          and we use a cheaper AI model when it’s safe to (routing). You only
+          see savings we actually <b>measured</b>.</div></div>
+      <div class="card"><div class="h">Can I trust these numbers?</div>
+        <div class="p">Every call writes a tamper-proof receipt, each linked to
+          the one before it. If anyone edited history, the lock icon at the top
+          turns to a warning. It’s currently <b id="trust">—</b>.</div></div>
+    </div>
+  </div>
+
+  <div class="panel" id="p-tech">
+    <div class="tiles">
+      <div class="tile"><div class="label">Total spend (measured)</div>
+        <div class="value" id="t-spend">–</div><div class="hint">settled at real usage</div></div>
+      <div class="tile saved"><div class="label">Net saved (measured)</div>
+        <div class="value" id="t-saved">–</div><div class="hint">cache+semantic+cascade − escalation</div></div>
+      <div class="tile"><div class="label">Compression saved (est.)</div>
+        <div class="value" id="t-comp">–</div><div class="hint">separate — estimated, not billed</div></div>
+      <div class="tile"><div class="label">Cache hit rate</div>
+        <div class="value" id="t-cache">–</div><div class="hint" id="t-cache-n">–</div></div>
+      <div class="tile"><div class="label">Ungoverned spend</div>
+        <div class="value" id="t-ungov">–</div><div class="hint">outside any envelope</div></div>
+    </div>
+    <section><h2>Spend by envelope <span class="note">— who is spending</span></h2>
+      <div id="envbars"><div class="empty">no spend yet</div></div></section>
+    <section><h2>Savings by envelope <span class="note">— red = cascade escalation overhead, never hidden</span></h2>
+      <div id="savebars"><div class="empty">no savings yet</div></div></section>
+    <section><h2>Spend by API key <span class="note">— fingerprints, never raw keys</span></h2>
+      <div id="keybars"><div class="empty">no keyed calls yet</div></div></section>
+  </div>
+
+  <div class="panel" id="p-logs">
+    <section><h2>Receipt log <span class="note">— the audit trail; newest first
+      (<code>/v1/receipts</code>, verify via <code>/v1/receipts/verify</code>)</span></h2>
+      <div class="wrap"><table>
+        <thead><tr><th>time</th><th>event</th><th>envelope</th><th>key</th>
+          <th>model</th><th class="num">cost $</th><th class="num">saved $</th>
+          <th>note</th></tr></thead>
+        <tbody id="rbody"><tr><td colspan="8" class="empty">no receipts yet</td></tr></tbody>
+      </table></div></section>
+  </div>
+
+<script>
+const $ = id => document.getElementById(id);
+const usd = v => "$" + (+v).toFixed(Math.abs(v) < 0.01 && v !== 0 ? 6 : 4);
+document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
+  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".panel").forEach(x => x.classList.remove("active"));
+  t.classList.add("active");
+  $("p-" + t.dataset.p).classList.add("active");
+});
+
+function bars(el, entries, maxAbs) {
+  if (!entries.length) { el.innerHTML = '<div class="empty">nothing yet</div>'; return; }
+  el.innerHTML = entries.map(([name, v, extra]) => {
+    const w = maxAbs ? Math.max(1, Math.abs(v) / maxAbs * 100) : 1;
+    return `<div class="barrow" title="${name}: ${usd(v)}${extra ? " — " + extra : ""}">
+      <div class="name">${name}</div>
+      <div class="track"><div class="fill${v < 0 ? " neg" : ""}" style="width:${w}%"></div></div>
+      <div class="val">${usd(v)}</div></div>`;
+  }).join("");
+}
+
+function story(rep, sav) {
+  const spend = +rep.total_spend_usd || 0, saved = +sav.net_saved_usd || 0;
+  const wouldBe = spend + saved;
+  const pct = wouldBe > 0 ? Math.round(saved / wouldBe * 100) : 0;
+  const hits = (sav.cache_hits||0) + (sav.semantic_cache ? sav.semantic_cache.hits : 0);
+  const comp = +sav.compression_saved_est_usd || 0;
+  return `Your teams spent <span class="big g">${usd(spend)}</span> on AI so far.
+    Without Pluginfer's cost-savers that bill would have been about
+    <b>${usd(wouldBe)}</b> — we cut it by <b class="g">${pct}%</b> by not paying to
+    answer repeat questions (<b>${hits}</b> answers reused for free) and using
+    cheaper models where it was safe.
+    ${comp > 0 ? `We also trimmed roughly <b>${usd(comp)}</b> more by shrinking
+    bloated prompts (this one is an estimate).` : ""}
+    Spending limits are <b>enforced automatically</b>: when a team hits its cap,
+    new calls stop instead of running up a surprise bill.`;
+}
+
+async function refresh() {
+  try {
+    const [rep, sav, keys, chain, rcpts] = await Promise.all([
+      fetch("/v1/budget/report").then(r => r.json()),
+      fetch("/v1/savings").then(r => r.json()),
+      fetch("/v1/spend/by_key").then(r => r.json()),
+      fetch("/v1/receipts/verify").then(r => r.json()),
+      fetch("/v1/receipts?limit=200").then(r => r.json()),
+    ]);
+    const ch = $("chain");
+    ch.className = "chain " + (chain.ok ? "ok" : "bad");
+    ch.textContent = chain.ok
+      ? `audit chain intact · ${chain.receipts_checked} receipts${chain.signed ? " · signed" : ""}`
+      : `AUDIT CHAIN BROKEN at receipt #${chain.broken_at_index}`;
+    $("trust").textContent = chain.ok ? "intact ✓" : "BROKEN ✗";
+
+    $("story").innerHTML = story(rep, sav);
+
+    $("t-spend").textContent = usd(rep.total_spend_usd || 0);
+    $("t-saved").textContent = usd(sav.net_saved_usd || 0);
+    $("t-comp").textContent = usd(sav.compression_saved_est_usd || 0);
+    const sh = sav.semantic_cache ? sav.semantic_cache.hits : 0;
+    const hits = (sav.cache_hits || 0) + sh;
+    const tot = hits + (sav.cache_misses || 0) + (sav.semantic_cache ? sav.semantic_cache.misses : 0);
+    $("t-cache").textContent = tot ? Math.round(hits / tot * 100) + "%" : "0%";
+    $("t-cache-n").textContent = `${hits} reused / ${tot} lookups`;
+    $("t-ungov").textContent = usd(rep.ungoverned_spend_usd || 0);
+
+    const env = Object.entries(rep.by_envelope || {})
+      .map(([k, v]) => [k, v.spend_usd, v.jobs + " calls"]).sort((a,b)=>b[1]-a[1]);
+    bars($("envbars"), env, Math.max(...env.map(e=>Math.abs(e[1])),0));
+    const se = Object.entries(sav.by_envelope || {}).map(([k,v])=>[k,v]).sort((a,b)=>b[1]-a[1]);
+    bars($("savebars"), se, Math.max(...se.map(e=>Math.abs(e[1])),0));
+    const ke = Object.entries(keys.by_key || {})
+      .map(([k,v]) => [k, v.spend_usd, v.calls + " calls · " + v.envelopes.join(", ")]).sort((a,b)=>b[1]-a[1]);
+    bars($("keybars"), ke, Math.max(...ke.map(e=>Math.abs(e[1])),0));
+
+    const rows = (rcpts.receipts || []).slice().reverse().map(r => {
+      const saved = +(r.saved_usd || 0);
+      const cls = saved > 0 ? "pos" : saved < 0 ? "negv" : "";
+      const note = r.cutoff ? "budget cutoff" : r.estimated ? "estimated"
+        : (r.similarity ? "sim " + r.similarity : (r.cascade ? "escalated" : ""));
+      return `<tr><td>${new Date(r.ts*1000).toLocaleTimeString()}</td>
+        <td><span class="kind">${(r.kind||"forward").replace(/_/g," ")}</span></td>
+        <td>${r.envelope||""}</td><td><code>${r.key_fingerprint||"—"}</code></td>
+        <td>${r.model||""}</td>
+        <td class="num">${(+(r.cost_usd||0)).toFixed(6)}</td>
+        <td class="num ${cls}">${saved?saved.toFixed(6):""}</td>
+        <td>${note}</td></tr>`;
+    });
+    $("rbody").innerHTML = rows.length ? rows.join("")
+      : '<tr><td colspan="8" class="empty">no receipts yet</td></tr>';
+  } catch (e) {
+    $("chain").className = "chain bad";
+    $("chain").textContent = "gateway unreachable: " + e.message;
+  }
+}
+refresh();
+setInterval(refresh, 10000);
+</script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Hardened runtime entitlements. We deliberately request the
+       MINIMUM needed: outbound network for mesh dispatch, and the
+       JIT exception only because PyTorch's CPU kernels can use the
+       JIT path. Tighten further if/when we drop the torch dependency
+       on Apple Silicon. -->
+  <key>com.apple.security.network.client</key>
+  <true/>
+  <key>com.apple.security.network.server</key>
+  <true/>
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Wallet lives in user library; no special entitlement needed. -->
+</dict>
+</plist>

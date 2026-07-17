@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Welcome to Pluginfer</title>
+  <style>
+    :root {
+      --bg: #0b0f1a;
+      --bg-elev: #131a2a;
+      --fg: #e8eef9;
+      --muted: #8b94a8;
+      --accent: #6ce5b8;
+      --warn: #f9b66c;
+      --error: #f97070;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; background: var(--bg); color: var(--fg);
+                 font: 15px/1.5 -apple-system, "SF Pro Display", Segoe UI, Roboto,
+                       Helvetica, Arial, sans-serif; }
+    main { max-width: 720px; margin: 5vh auto; padding: 0 24px; }
+    h1 { font-size: 28px; margin: 0 0 4px; letter-spacing: -0.01em; }
+    .sub { color: var(--muted); margin: 0 0 32px; }
+    .card { background: var(--bg-elev); border-radius: 14px; padding: 20px 22px;
+            margin: 14px 0; box-shadow: 0 2px 12px rgba(0,0,0,0.25); }
+    .card h2 { font-size: 14px; text-transform: uppercase; letter-spacing: 0.08em;
+               color: var(--muted); margin: 0 0 12px; font-weight: 600; }
+    .row { display: flex; justify-content: space-between; align-items: baseline;
+           gap: 12px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .row:last-child { border-bottom: 0; }
+    .row .k { color: var(--muted); }
+    .row .v { font-variant-numeric: tabular-nums; }
+    .big { font-size: 30px; font-weight: 600; }
+    .accent { color: var(--accent); }
+    .warn { color: var(--warn); }
+    .error { color: var(--error); }
+    button.cta { background: var(--accent); color: #061a13; border: 0; padding: 14px 28px;
+                 border-radius: 999px; font-size: 16px; font-weight: 600;
+                 cursor: pointer; box-shadow: 0 4px 18px rgba(108, 229, 184, 0.25); }
+    button.cta:disabled { opacity: 0.5; cursor: default; }
+    .steps li { padding: 6px 0; }
+    code { background: rgba(255,255,255,0.05); padding: 1px 6px; border-radius: 4px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Welcome to Pluginfer.</h1>
+    <p class="sub">One screen. We'll detect your hardware, estimate what you'd earn, and get you going.</p>
+
+    <div class="card" id="card-earnings">
+      <h2>Estimated earnings</h2>
+      <div class="big accent" id="earn-exp">—</div>
+      <div class="row"><span class="k">low end of range</span><span class="v" id="earn-low">—</span></div>
+      <div class="row"><span class="k">high end of range</span><span class="v" id="earn-high">—</span></div>
+      <div class="row"><span class="k">on hardware tier</span><span class="v" id="hw-tier">detecting…</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Your hardware</h2>
+      <div class="row"><span class="k">GPU</span><span class="v" id="hw-gpu">—</span></div>
+      <div class="row"><span class="k">VRAM</span><span class="v" id="hw-vram">—</span></div>
+      <div class="row"><span class="k">CPU</span><span class="v" id="hw-cpu">—</span></div>
+      <div class="row"><span class="k">RAM</span><span class="v" id="hw-ram">—</span></div>
+      <div class="row"><span class="k">OS</span><span class="v" id="hw-os">—</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Friction-free</h2>
+      <div class="row">
+        <span class="k">when you game</span>
+        <span class="v" id="game-policy">we pause</span>
+      </div>
+      <div class="row"><span class="k">when you idle</span><span class="v">we resume</span></div>
+      <div class="row"><span class="k">currently</span><span class="v" id="game-now">checking…</span></div>
+    </div>
+
+    <div class="card">
+      <h2>Wallet</h2>
+      <div class="row"><span class="k">on disk</span><span class="v" id="wallet-state">—</span></div>
+      <div class="row"><span class="k">encrypted at rest</span><span class="v accent">yes (passphrase required)</span></div>
+      <div class="row"><span class="k">next</span><span class="v" id="wallet-next">—</span></div>
+    </div>
+
+    <div class="card" id="card-compliance" style="display:none">
+      <h2 class="error">We can't onboard you here</h2>
+      <p class="error" id="compliance-reason">—</p>
+    </div>
+
+    <div class="card">
+      <h2>Next steps</h2>
+      <ol class="steps" id="next-steps"></ol>
+    </div>
+
+    <div style="text-align: center; margin: 24px 0 8vh">
+      <button id="start" class="cta" disabled>Start earning</button>
+    </div>
+  </main>
+
+  <script src="provider.js" defer></script>
+  <script>
+    (async () => {
+      const $ = (id) => document.getElementById(id);
+      const fmt = (n) => "$" + (n ?? 0).toFixed(2);
+      try {
+        const r = await fetch("/v1/first_launch/profile");
+        if (!r.ok) throw new Error("profile " + r.status);
+        const p = await r.json();
+        $("earn-exp").textContent = fmt(p.earnings.expected_usd_per_day) + " / day";
+        $("earn-low").textContent = fmt(p.earnings.low_usd_per_day) + " / day";
+        $("earn-high").textContent = fmt(p.earnings.high_usd_per_day) + " / day";
+        $("hw-tier").textContent = p.hardware.tier;
+        $("hw-gpu").textContent = p.hardware.gpu + (p.hardware.gpu_vram_gb ? "" : " (none)");
+        $("hw-vram").textContent = p.hardware.gpu_vram_gb ? (p.hardware.gpu_vram_gb + " GB") : "—";
+        $("hw-cpu").textContent = p.hardware.cpu + " (" + p.hardware.cores + " cores)";
+        $("hw-ram").textContent = p.hardware.ram_gb + " GB";
+        $("hw-os").textContent = p.hardware.os;
+        $("game-now").textContent = p.game_detection.is_gaming_now ? "gaming detected — paused" : "idle — ready";
+        $("game-policy").textContent = p.game_detection.detector_available ? "we pause" : "we pause (detector unavailable, manual mode)";
+        $("wallet-state").textContent = p.wallet.exists_on_disk ? "found" : "new install";
+        $("wallet-next").textContent = p.wallet.next_action;
+        const steps = $("next-steps");
+        steps.innerHTML = "";
+        for (const step of (p.next_steps || [])) {
+          const li = document.createElement("li");
+          li.textContent = step;
+          steps.appendChild(li);
+        }
+        if (!p.compliance.allowed) {
+          $("card-compliance").style.display = "block";
+          $("compliance-reason").textContent = p.compliance.reason || "Region not eligible.";
+          $("start").disabled = true;
+        } else {
+          $("start").disabled = false;
+        }
+      } catch (e) {
+        $("earn-exp").textContent = "—";
+        $("hw-tier").textContent = "could not load profile: " + e.message;
+      }
+    })();
+  </script>
+</body>
+</html>

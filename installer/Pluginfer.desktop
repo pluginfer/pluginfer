@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Pluginfer
+Comment=Earn from your idle GPU. Train AI for free.
+Exec=python3 -m ai.filum.first_run
+Path=
+Icon=
+Terminal=false
+Type=Application
+Categories=Utility;Network;
+StartupNotify=true

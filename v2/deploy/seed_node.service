@@ -1,0 +1,29 @@
+[Unit]
+Description=Pluginfer seed node (TCP REGISTER/PEERS)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pluginfer
+Group=pluginfer
+WorkingDirectory=/opt/pluginfer/v2
+Environment=PYTHONUNBUFFERED=1
+Environment=PLUGINFER_LOG_LEVEL=INFO
+ExecStart=/opt/pluginfer/.venv/bin/python -m infrastructure.seed_node.seed_server --host 0.0.0.0 --port 9000
+Restart=always
+RestartSec=5
+LimitNOFILE=65535
+
+# Hardening — the seed has no business writing outside its data dir.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/pluginfer
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

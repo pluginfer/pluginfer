@@ -1,0 +1,8 @@
+# Runtime deps for the Pluginfer Devserver image. Kept narrow on
+# purpose — every additional pin is supply-chain risk.
+fastapi>=0.115,<1
+uvicorn[standard]>=0.32,<1
+sse-starlette>=2,<3
+httpx>=0.27,<1
+pydantic>=2.6,<3
+cryptography>=42,<46

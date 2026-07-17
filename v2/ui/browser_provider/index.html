@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pluginfer — Browser Provider Node</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0b0d10;
+    --fg: #e8eef5;
+    --muted: #8898a8;
+    --accent: #6cf;
+    --good: #5fd47e;
+    --warn: #ffb84d;
+    --bad: #ff6970;
+    --card: #11161c;
+    --border: #1d242c;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; background: var(--bg); color: var(--fg); }
+  body { padding: 32px 24px; max-width: 980px; margin: 0 auto; }
+  header { display: flex; align-items: baseline; gap: 16px; margin-bottom: 24px; }
+  header h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  header .tag { font-size: 11px; color: var(--muted); padding: 2px 8px; border: 1px solid var(--border); border-radius: 999px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 24px; }
+  .stat { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .stat .label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+  .stat .value { font-size: 22px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .stat .value.good { color: var(--good); }
+  .stat .value.warn { color: var(--warn); }
+  .stat .value.bad { color: var(--bad); }
+  .panel { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 18px; margin-bottom: 18px; }
+  .panel h2 { font-size: 14px; margin: 0 0 10px 0; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
+  .row label { font-size: 12px; color: var(--muted); }
+  input[type="text"], input[type="number"] { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-family: inherit; font-size: 13px; min-width: 280px; }
+  button { background: var(--accent); color: #002033; border: 0; padding: 8px 16px; border-radius: 6px; font-weight: 600; cursor: pointer; font-size: 13px; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent); }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; font-size: 12px; max-height: 260px; overflow: auto; margin: 0; line-height: 1.45; }
+  .log .ok { color: var(--good); }
+  .log .err { color: var(--bad); }
+  .log .info { color: var(--muted); }
+  footer { font-size: 11px; color: var(--muted); margin-top: 32px; line-height: 1.6; }
+  footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>Pluginfer Browser Provider</h1>
+  <span class="tag">webgpu</span>
+  <span class="tag" id="agent-id">id: —</span>
+</header>
+
+<div class="grid">
+  <div class="stat"><div class="label">Status</div><div id="stat-status" class="value warn">idle</div></div>
+  <div class="stat"><div class="label">GPU</div><div id="stat-gpu" class="value">detecting…</div></div>
+  <div class="stat"><div class="label">Jobs Served</div><div id="stat-jobs" class="value">0</div></div>
+  <div class="stat"><div class="label">PLG Earned</div><div id="stat-earnings" class="value good">0.0000</div></div>
+</div>
+
+<div class="panel">
+  <h2>Connection</h2>
+  <div class="row">
+    <label>Gateway</label>
+    <input id="gateway" type="text" value="http://localhost:11400" />
+    <label>Provider Tag</label>
+    <input id="tag" type="text" value="browser-tab" />
+    <button id="connect">Start Earning</button>
+    <button id="disconnect" class="secondary" disabled>Stop</button>
+  </div>
+  <div class="row">
+    <label>Refresh (s)</label>
+    <input id="poll" type="number" value="2" min="1" max="30" style="min-width:80px" />
+    <label>Max concurrent jobs</label>
+    <input id="concurrency" type="number" value="1" min="1" max="8" style="min-width:80px" />
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Activity</h2>
+  <pre id="log" class="log"></pre>
+</div>
+
+<footer>
+  <p>This is a Pluginfer provider node running entirely in your browser tab. While you keep this page open, idle GPU cycles bid on inference jobs through the mesh auction. Every job emits a signed receipt — switch to the leaderboard at <code>/v1/receipts/leaderboard</code> on your gateway to see it.</p>
+  <p>Hardware fingerprint never leaves your machine; only your provider pubkey does. To revoke, close the tab.</p>
+</footer>
+
+<script type="module" src="./provider.js"></script>
+</body>
+</html>
