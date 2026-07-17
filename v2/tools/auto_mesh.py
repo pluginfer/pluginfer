@@ -800,6 +800,16 @@ def build_node_app(*, my_pubkey: str, my_wallet, node_id: str):
                 "error": "money ledger not attached"})
         return _stamp_economics(svc.ledger.treasury_report(limit=limit))
 
+    @app.get("/v1/ledger/verify")
+    async def v1_ledger_verify():
+        """Anyone may audit this node's money ledger: recomputes every
+        balance from its full entry history and reports the snapshot
+        integrity status. ok=false blocks withdrawals automatically."""
+        if svc.ledger is None:
+            return JSONResponse(status_code=503, content={
+                "error": "money ledger not attached"})
+        return _stamp_economics(svc.ledger.verify_balances())
+
     @app.get("/v1/ledger/wallets/{wallet_id}")
     async def v1_ledger_wallet(wallet_id: str):
         if svc.ledger is None:
@@ -851,7 +861,16 @@ def build_node_app(*, my_pubkey: str, my_wallet, node_id: str):
 
     def _cash_denied():
         """Real cash movement is refused outright while in testnet —
-        a mis-set Stripe key must not be able to charge anyone."""
+        a mis-set Stripe key must not be able to charge anyone. And
+        mainnet REFUSES to move money with no admin key configured:
+        an open, unauthenticated cash endpoint is not a dev
+        convenience once the money is real."""
+        if _economics_mode() == "mainnet" and not os.environ.get(
+                "PLUGINFER_NODE_ADMIN_KEY"):
+            return JSONResponse(status_code=403, content=_stamp_economics({
+                "error": "economics_mode=mainnet requires "
+                         "PLUGINFER_NODE_ADMIN_KEY to be set — refusing "
+                         "to expose unauthenticated money operations"}))
         if _economics_mode() == "testnet":
             return JSONResponse(status_code=403, content=_stamp_economics({
                 "error": "economics_mode=testnet — real deposits and "

@@ -161,7 +161,19 @@ class BuyerLedger:
         self._wallets[TREASURY_WALLET_ID] = BuyerWallet(
             wallet_id=TREASURY_WALLET_ID, role="treasury",
         )
+        # Non-empty = the persisted state failed verification. Money
+        # NEVER leaves (withdrawals refuse) while this is non-empty.
+        self.integrity_alerts: List[str] = []
         self._load()
+        bal = self.verify_balances()
+        if not bal["ok"]:
+            import logging as _lg
+            _lg.getLogger(__name__).critical(
+                "MONEY LEDGER INTEGRITY FAILURE: %d wallet(s) do not "
+                "match their entry history: %s",
+                len(bal["mismatches"]), bal["mismatches"])
+            self.integrity_alerts.append(
+                f"balance/history mismatch: {bal['mismatches']}")
 
     # ------------------------------------------------------------------
     # Persistence — atomic snapshot on every mutation
@@ -210,9 +222,26 @@ class BuyerLedger:
                     } for jid, e in self._escrows.items()
                 },
             }
+            # Tamper-evidence seal: sha256 over the canonical body.
+            # Honest scope — this catches corruption and casual edits;
+            # a host who edits AND re-hashes with the code in hand is
+            # not detectable locally. That is why authoritative
+            # settlement (real payouts) is never trusted to a remote
+            # host's file, and why withdrawals refuse while integrity
+            # is in doubt (see payment_flows).
+            import hashlib as _hl
+            data["integrity_sha256"] = _hl.sha256(
+                json.dumps(data, sort_keys=True).encode("utf-8")
+            ).hexdigest()
             tmp = self._state_path.with_suffix(".tmp")
             tmp.write_text(json.dumps(data), encoding="utf-8")
             os.replace(tmp, self._state_path)
+            marker = self._state_path.with_suffix(".exists")
+            if not marker.exists():
+                marker.write_text("money ledger created; if the .json "
+                                  "is ever missing while this file "
+                                  "remains, the state was deleted\n",
+                                  encoding="utf-8")
         except OSError as exc:
             import logging
             logging.getLogger(__name__).error(
@@ -221,11 +250,39 @@ class BuyerLedger:
     def _load(self) -> None:
         if self._state_path is None:
             return
+        # Deletion-evidence: the marker outlives the ledger file. A
+        # missing ledger with a present marker is a wipe, not a fresh
+        # install — flagged, and withdrawals stay blocked.
+        marker = self._state_path.with_suffix(".exists")
+        if not self._state_path.exists():
+            if marker.exists():
+                import logging as _lg
+                _lg.getLogger(__name__).critical(
+                    "MONEY LEDGER INTEGRITY FAILURE: ledger file is "
+                    "missing but its marker exists — state was deleted. "
+                    "Withdrawals are BLOCKED until resolved.")
+                self.integrity_alerts.append(
+                    "ledger file missing but marker present — deleted?")
+            return
         import json
         try:
             data = json.loads(self._state_path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return
+        claimed = data.pop("integrity_sha256", None)
+        if claimed is not None:
+            import hashlib as _hl
+            actual = _hl.sha256(
+                json.dumps(data, sort_keys=True).encode("utf-8")
+            ).hexdigest()
+            if actual != claimed:
+                import logging as _lg
+                _lg.getLogger(__name__).critical(
+                    "MONEY LEDGER INTEGRITY FAILURE: snapshot hash "
+                    "mismatch — file was edited or corrupted. "
+                    "Withdrawals are BLOCKED until resolved.")
+                self.integrity_alerts.append(
+                    "snapshot sha256 mismatch on load")
         with self._lock:
             for wid, wd in data.get("wallets", {}).items():
                 w = BuyerWallet(
@@ -565,6 +622,68 @@ class BuyerLedger:
     def treasury_balance(self) -> Decimal:
         with self._lock:
             return self._wallets[TREASURY_WALLET_ID].available_usd
+
+    def verify_balances(self) -> Dict[str, Any]:
+        """Recompute every wallet's balances from its full entry history
+        and compare with the stored figures. An edited balance without a
+        consistently forged history shows up here immediately.
+
+        Entry semantics (single source of truth for auditors):
+          credit            → available += amount
+          debit (job_id)    → locked    -= amount   (escrow settlement)
+          debit (no job_id) → available -= amount   (withdrawal)
+          lock              → available -= amount, locked += amount
+          refund            → available += amount, locked -= amount
+          release           → available += amount   (provider earnings)
+          commission        → available += amount   (treasury only)
+        """
+        mismatches = []
+        with self._lock:
+            for wid, w in self._wallets.items():
+                av = Decimal("0")
+                lk = Decimal("0")
+                for e in w.entries:
+                    a = e.amount_usd
+                    if e.kind == "credit":
+                        av += a
+                    elif e.kind == "debit":
+                        if e.job_id:
+                            lk -= a
+                        else:
+                            av -= a
+                    elif e.kind == "lock":
+                        av -= a
+                        lk += a
+                    elif e.kind == "refund":
+                        av += a
+                        lk -= a
+                    elif e.kind in ("release", "commission"):
+                        av += a
+                    else:
+                        mismatches.append(
+                            f"{wid}: unknown entry kind {e.kind!r}")
+                if av != w.available_usd or lk != w.locked_usd:
+                    mismatches.append(
+                        f"{wid}: stored available={w.available_usd} "
+                        f"locked={w.locked_usd}, history says "
+                        f"available={av} locked={lk}")
+            treas = self._wallets.get(TREASURY_WALLET_ID)
+            if treas is not None:
+                comm = sum((e.amount_usd for e in treas.entries
+                            if e.kind == "commission"), Decimal("0"))
+                non_comm = [e for e in treas.entries
+                            if e.kind != "commission"]
+                if non_comm:
+                    mismatches.append(
+                        f"treasury has {len(non_comm)} non-commission "
+                        f"entries — treasury only ever earns commission")
+                if comm != treas.available_usd:
+                    mismatches.append(
+                        f"treasury balance {treas.available_usd} != "
+                        f"sum of commissions {comm}")
+        return {"ok": not mismatches and not self.integrity_alerts,
+                "mismatches": mismatches,
+                "integrity_alerts": list(self.integrity_alerts)}
 
     def treasury_report(self, *, limit: int = 100) -> Dict[str, Any]:
         """The commission book, made visible: total earned, entry count,

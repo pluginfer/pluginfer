@@ -64,6 +64,10 @@ class PaymentsNotConfigured(RuntimeError):
     """Deposit attempted with no real payment gateway configured."""
 
 
+class LedgerIntegrityError(RuntimeError):
+    """Persisted money state failed verification — cash-out refused."""
+
+
 class UnknownWithdrawal(KeyError):
     pass
 
@@ -193,6 +197,16 @@ class PaymentFlows:
     # ------------------------------------------------------------------
     # Withdrawals — money OUT (two-phase)
     # ------------------------------------------------------------------
+    def _refuse_if_integrity_doubt(self) -> None:
+        """Money never leaves a ledger whose state failed verification.
+        A tampered or corrupted money file must be investigated and
+        resolved by the operator BEFORE any cash-out — fail closed."""
+        alerts = getattr(self.ledger, "integrity_alerts", None)
+        if alerts:
+            raise LedgerIntegrityError(
+                "ledger integrity is in doubt — withdrawals are "
+                f"blocked: {alerts}")
+
     def request_withdrawal(self, *, wallet_id: str, amount_usd: Decimal,
                            destination: str) -> WithdrawalRecord:
         """Phase 1: debit the wallet NOW (overdraw and escrowed funds
@@ -203,6 +217,7 @@ class PaymentFlows:
         if not destination.strip():
             raise ValueError("destination is required — a withdrawal "
                              "must say where the money goes")
+        self._refuse_if_integrity_doubt()
         with self._lock:
             wid = "wd-" + secrets.token_urlsafe(10)
             # Debit first: after this the funds live ONLY in this record.
@@ -237,6 +252,7 @@ class PaymentFlows:
         Refuses an empty reference — 'trust me' is not a reference."""
         if not payout_reference.strip():
             raise ValueError("payout_reference is required")
+        self._refuse_if_integrity_doubt()
         with self._lock:
             rec = self._withdrawals.get(withdrawal_id)
             if rec is None:

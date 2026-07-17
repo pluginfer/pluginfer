@@ -349,3 +349,85 @@ def test_faucet_credit_spendable_in_escrow(tmp_path):
     assert led.get_wallet("newbie-2").available_usd == Decimal("24.00")
     assert led.get_wallet("prov-9").available_usd == Decimal("0.90")
     assert led.treasury_balance() == Decimal("0.10")
+
+
+# ---------------------------------------------------------------------------
+# Tamper evidence — edited balances are detected, cash-out is blocked
+# ---------------------------------------------------------------------------
+
+def _funded_ledger(tmp_path):
+    from decimal import Decimal
+    from core.buyer_ledger import BuyerLedger
+    led = BuyerLedger(str(tmp_path))
+    led.credit("victim", Decimal("50.00"), note="top-up")
+    return led
+
+
+def test_clean_ledger_verifies_ok(tmp_path):
+    led = _funded_ledger(tmp_path)
+    v = led.verify_balances()
+    assert v["ok"] is True and v["mismatches"] == []
+
+
+def test_edited_balance_detected_and_withdrawals_blocked(tmp_path):
+    import json
+    from decimal import Decimal
+    from core.buyer_ledger import BuyerLedger
+    from core.payment_flows import LedgerIntegrityError, PaymentFlows
+    import pytest
+
+    _funded_ledger(tmp_path)
+    # Attacker edits their available balance on disk AND re-seals the
+    # snapshot hash (the sophisticated case — hash alone won't catch it).
+    p = tmp_path / "money_ledger.json"
+    data = json.loads(p.read_text(encoding="utf-8"))
+    data["wallets"]["victim"]["available_usd"] = "999999.00"
+    data.pop("integrity_sha256", None)
+    import hashlib
+    data["integrity_sha256"] = hashlib.sha256(
+        json.dumps(data, sort_keys=True).encode()).hexdigest()
+    p.write_text(json.dumps(data), encoding="utf-8")
+
+    led2 = BuyerLedger(str(tmp_path))
+    v = led2.verify_balances()
+    assert v["ok"] is False
+    assert any("victim" in m for m in v["mismatches"])
+    # The teeth: money cannot leave while integrity is in doubt.
+    flows = PaymentFlows(led2, gateway=None, state_dir=str(tmp_path))
+    with pytest.raises(LedgerIntegrityError):
+        flows.request_withdrawal(wallet_id="victim",
+                                 amount_usd=Decimal("10.00"),
+                                 destination="upi:someone@bank")
+
+
+def test_file_edit_without_reseal_detected(tmp_path):
+    from core.buyer_ledger import BuyerLedger
+    _funded_ledger(tmp_path)
+    p = tmp_path / "money_ledger.json"
+    p.write_text(p.read_text(encoding="utf-8").replace("50.00", "90.00"),
+                 encoding="utf-8")
+    led2 = BuyerLedger(str(tmp_path))
+    v = led2.verify_balances()
+    assert v["ok"] is False
+    assert any("sha256" in a for a in v["integrity_alerts"])
+
+
+def test_deleted_ledger_file_detected_and_blocks_withdrawals(tmp_path):
+    from decimal import Decimal
+    from core.buyer_ledger import BuyerLedger
+    from core.payment_flows import LedgerIntegrityError, PaymentFlows
+    import pytest
+
+    led = BuyerLedger(str(tmp_path))
+    led.credit("victim", Decimal("50.00"), note="top-up")
+    (tmp_path / "money_ledger.json").unlink()
+
+    led2 = BuyerLedger(str(tmp_path))
+    v = led2.verify_balances()
+    assert v["ok"] is False
+    assert any("deleted" in a for a in v["integrity_alerts"])
+    flows = PaymentFlows(led2, gateway=None, state_dir=str(tmp_path))
+    with pytest.raises(LedgerIntegrityError):
+        flows.request_withdrawal(wallet_id="victim",
+                                 amount_usd=Decimal("1.00"),
+                                 destination="upi:x@bank")

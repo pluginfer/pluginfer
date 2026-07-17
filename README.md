@@ -118,6 +118,15 @@ walked back:
 - Payouts will only ever come from **real buyer payments** — provider
   earnings are never subsidized from a treasury and there are no token
   emissions.
+- **The money ledger audits itself — strictly, starting on testnet.**
+  Every balance must equal its full entry history: `GET
+  /v1/ledger/verify` recomputes it on demand (public), the state file
+  is hash-sealed, and a deleted state file is detected, not forgotten.
+  Any integrity doubt blocks withdrawals automatically. Honest scope:
+  a host can always edit files on their own machine — that's physics —
+  which is why tampering is *detected* locally and payouts are only
+  ever decided from the operator's authoritative ledger, never from a
+  host-submitted file.
 - **Trying the mesh is free during testnet.** There is nothing to buy:
   `POST /v1/testnet/faucet {"wallet_id": "you"}` grants a one-time
   starter balance (default $25 test-USD, once per wallet) so anyone
