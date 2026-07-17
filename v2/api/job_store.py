@@ -283,8 +283,10 @@ class SQLiteJobStore(JobStore):
         cols = list(row.keys())
         placeholders = ",".join("?" for _ in cols)
         updates = ",".join(f"{c}=excluded.{c}" for c in cols if c != "job_id")
+        # nosec B608 — identifiers come from the fixed _rec_to_row schema,
+        # never from user input; all VALUES are bound parameters.
         sql = (
-            f"INSERT INTO jobs({','.join(cols)}) VALUES ({placeholders}) "
+            f"INSERT INTO jobs({','.join(cols)}) VALUES ({placeholders}) "  # nosec B608
             f"ON CONFLICT(job_id) DO UPDATE SET {updates}"
         )
         try:
@@ -306,7 +308,9 @@ class SQLiteJobStore(JobStore):
             cur.row_factory = sqlite3.Row
             placeholders = ",".join("?" for _ in OPEN_STATES)
             cur.execute(
-                f"SELECT * FROM jobs WHERE state IN ({placeholders}) "
+                # nosec B608 — only "?" placeholders are interpolated; the
+                # IN values are a constant tuple bound as parameters.
+                f"SELECT * FROM jobs WHERE state IN ({placeholders}) "  # nosec B608
                 f"ORDER BY submitted_at_unix",
                 tuple(OPEN_STATES),
             )

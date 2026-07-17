@@ -184,6 +184,12 @@ jobs:
 
   publish-devserver-image:
     runs-on: ubuntu-22.04
+    # GitHub refuses the `secrets` context inside `if:` expressions (the
+    # whole workflow fails to parse) — hoist the optional Docker Hub
+    # credentials into job env and gate on `env` instead.
+    env:
+      DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
@@ -195,11 +201,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Log in to Docker Hub (optional — skipped if secret absent)
-        if: ${{ secrets.DOCKERHUB_TOKEN != '' }}
+        if: ${{ env.DOCKERHUB_TOKEN != '' }}
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ env.DOCKERHUB_USERNAME }}
+          password: ${{ env.DOCKERHUB_TOKEN }}
       - name: Build & push devserver image (linux/amd64 + linux/arm64)
         uses: docker/build-push-action@v5
         with:
