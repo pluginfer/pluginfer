@@ -523,3 +523,46 @@ def test_gateway_key_replaces_client_auth():
             headers={"Authorization": "Bearer app-held-gateway-key"})
     sent = calls[0]["headers"]
     assert sent["Authorization"] == "Bearer real-key"
+
+
+# ---------------------------------------------------------------------------
+# Multi-upstream: X-Pluginfer-Upstream + allowlist (SSRF-gated)
+# ---------------------------------------------------------------------------
+
+def test_upstream_override_allowlisted_and_ssrf_refused():
+    seen = []
+
+    def upstream(url, body, headers, timeout_s):
+        seen.append(url)
+        resp = {"choices": [{"message": {"content": "ok"},
+                             "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 10, "completion_tokens": 10}}
+        return 200, json.dumps(resp).encode()
+
+    app, _, _ = _stack(http_post=upstream,
+                       upstream_allowlist=["https://api.groq.com/openai"])
+    with TestClient(app) as c:
+        # Allowlisted override → forwarded to the requested base.
+        r = c.post("/v1/chat/completions", json={
+            "model": "gpt-test",
+            "messages": [{"role": "user", "content": "hi"}]},
+            headers={"X-Pluginfer-Upstream":
+                     "https://api.groq.com/openai"})
+        assert r.status_code == 200
+        assert seen[-1].startswith("https://api.groq.com/openai/")
+        rec = c.get("/v1/receipts").json()["receipts"][-1]
+        assert rec["upstream"].startswith("https://api.groq.com/openai")
+        # Non-allowlisted → 403, upstream NEVER called.
+        n = len(seen)
+        r2 = c.post("/v1/chat/completions", json={
+            "model": "gpt-test",
+            "messages": [{"role": "user", "content": "hi"}]},
+            headers={"X-Pluginfer-Upstream": "https://evil.example"})
+        assert r2.status_code == 403
+        assert len(seen) == n
+        # No header → default upstream, unchanged behavior.
+        r3 = c.post("/v1/chat/completions", json={
+            "model": "gpt-test",
+            "messages": [{"role": "user", "content": "hi"}]})
+        assert r3.status_code == 200
+        assert seen[-1].startswith("https://upstream.example")

@@ -98,9 +98,18 @@ HttpStream = Callable[[str, bytes, Dict[str, str], float],
                       Tuple[int, Iterable[bytes]]]
 
 
+def _ua(headers: Dict[str, str]) -> Dict[str, str]:
+    """Provider WAFs (Cloudflare et al.) reject Python's default
+    User-Agent outright — seen live as an HTML 403 from Cerebras. Send
+    an honest product UA unless the caller set their own."""
+    if not any(k.lower() == "user-agent" for k in headers):
+        headers = {**headers, "User-Agent": "pluginfer-signet/1.0"}
+    return headers
+
+
 def _default_http_post(url: str, body: bytes, headers: Dict[str, str],
                        timeout_s: float) -> Tuple[int, bytes]:
-    req = urllib.request.Request(url, data=body, headers=headers,
+    req = urllib.request.Request(url, data=body, headers=_ua(headers),
                                  method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout_s) as r:
@@ -115,7 +124,7 @@ def _default_http_stream(url: str, body: bytes,
                          headers: Dict[str, str],
                          timeout_s: float
                          ) -> Tuple[int, Iterable[bytes]]:
-    req = urllib.request.Request(url, data=body, headers=headers,
+    req = urllib.request.Request(url, data=body, headers=_ua(headers),
                                  method="POST")
     try:
         resp = urllib.request.urlopen(req, timeout=timeout_s)
@@ -284,10 +293,20 @@ class GovernanceGateway:
         cascades: Optional[Dict[str, str]] = None,
         # governance.router.ModelRouter — rule-driven model selection.
         router: Optional[Any] = None,
+        # Extra upstream bases callable via X-Pluginfer-Upstream.
+        upstream_allowlist: Optional[List[str]] = None,
         timeout_s: float = 120.0,
     ) -> None:
         self.budget = budget
         self.upstream_base = upstream_base.rstrip("/")
+        # Multi-upstream mode: a client may pick a DIFFERENT upstream
+        # per call via the X-Pluginfer-Upstream header, but ONLY from
+        # this explicit allowlist — an open redirect on a gateway that
+        # attaches server-side credentials would be an SSRF hole, so
+        # anything not listed is refused with 403. Empty list = the
+        # header is entirely disabled (single-upstream mode, default).
+        self.upstream_allowlist = [u.rstrip("/")
+                                   for u in (upstream_allowlist or [])]
         self.price_sheet = dict(price_sheet)
         self.upstream_api_key = upstream_api_key
         # Auth: build a config from a bare admin_key if that legacy arg
@@ -632,17 +651,33 @@ class GovernanceGateway:
         return headers
 
     def _post_upstream(self, path: str, body: Dict[str, Any],
-                       headers: Dict[str, str]
+                       headers: Dict[str, str],
+                       base: Optional[str] = None
                        ) -> Tuple[int, bytes, Optional[Dict[str, Any]]]:
         req_bytes = json.dumps(body).encode("utf-8")
         status, resp_bytes = self.http_post(
-            self.upstream_base + path, req_bytes, headers,
+            (base or self.upstream_base) + path, req_bytes, headers,
             self.timeout_s)
         try:
             return status, resp_bytes, json.loads(
                 resp_bytes.decode("utf-8"))
         except (json.JSONDecodeError, UnicodeDecodeError):
             return status, resp_bytes, None
+
+    def _resolve_upstream(self, request: FastApiRequest
+                          ) -> Tuple[str, Optional[JSONResponse]]:
+        """Per-call upstream selection via X-Pluginfer-Upstream,
+        allowlist-enforced. Returns (base, None) or (default, 403)."""
+        want = (request.headers.get("x-pluginfer-upstream") or "").rstrip("/")
+        if not want or want == self.upstream_base:
+            return self.upstream_base, None
+        if want in self.upstream_allowlist:
+            return want, None
+        return self.upstream_base, JSONResponse(
+            status_code=403, content={
+                "error": f"upstream {want!r} is not in this gateway's "
+                         f"allowlist", "allowed":
+                         [self.upstream_base] + self.upstream_allowlist})
 
     @staticmethod
     def _usage_cost_inputs(resp: Dict[str, Any],
@@ -683,6 +718,9 @@ class GovernanceGateway:
             # Pinned envelope wins — the key can only spend its own.
             envelope = client_key.envelope
         key_fp = self._key_fingerprint(request)
+        eff_base, deny = self._resolve_upstream(request)
+        if deny is not None:
+            return deny
         # Model routing (Signet router): rule-driven best-model-per-
         # task selection across any number of plugged-in models. The
         # swap happens BEFORE pricing/caching so every downstream tier
@@ -787,7 +825,8 @@ class GovernanceGateway:
                 request=request, upstream_path=upstream_path,
                 usage_keys=usage_keys, body=body, headers=headers,
                 envelope=envelope, model=model, call_id=call_id,
-                hold_usd=est, in_tok_est=in_tok, key_fp=key_fp)
+                hold_usd=est, in_tok_est=in_tok, key_fp=key_fp,
+                upstream_base=eff_base)
 
         # Thrift rung 2 — cascade (opt-in per model): try the cheaper
         # configured model first; only hard failure signals escalate.
@@ -800,7 +839,7 @@ class GovernanceGateway:
                 status, resp_bytes, resp_json = await \
                     asyncio.get_running_loop().run_in_executor(
                         None, self._post_upstream, upstream_path,
-                        cheap_body, headers)
+                        cheap_body, headers, eff_base)
             except Exception:
                 status, resp_bytes, resp_json = 0, b"", None
             if status == 200 and isinstance(resp_json, dict):
@@ -856,7 +895,7 @@ class GovernanceGateway:
             status, resp_bytes, resp_json = await \
                 asyncio.get_running_loop().run_in_executor(
                     None, self._post_upstream, upstream_path, body,
-                    headers)
+                    headers, eff_base)
         except Exception as e:
             self.budget.release(call_id)
             return JSONResponse(status_code=502, content={
@@ -916,7 +955,7 @@ class GovernanceGateway:
             "requested_model": (route_info["from"] if route_info
                                 else None),
             "routing": route_info,
-            "upstream": self.upstream_base + upstream_path,
+            "upstream": eff_base + upstream_path,
             "input_tokens": real_in if real_in is not None else in_tok,
             "output_tokens": (real_out if real_out is not None
                               else out_tok),
@@ -952,8 +991,10 @@ class GovernanceGateway:
                          headers: Dict[str, str], envelope: str,
                          model: str, call_id: str, hold_usd: float,
                          in_tok_est: int,
-                         key_fp: str = "anonymous"
+                         key_fp: str = "anonymous",
+                         upstream_base: Optional[str] = None
                          ) -> StreamingResponse:
+        eff_base = upstream_base or self.upstream_base
         # Ask OpenAI-compatible upstreams to emit usage at stream end.
         # Harmless if unknown: servers ignore unrecognised options or
         # error — an error is relayed and the hold released.
@@ -971,7 +1012,7 @@ class GovernanceGateway:
             buffer = b""
             try:
                 status, chunks = gw.http_stream(
-                    gw.upstream_base + upstream_path,
+                    eff_base + upstream_path,
                     json.dumps(body).encode("utf-8"), headers,
                     gw.timeout_s)
                 if status >= 400:
@@ -1081,6 +1122,7 @@ def build_governance_gateway(
     compressor: Optional[Any] = None,
     cascades: Optional[Dict[str, str]] = None,
     router: Optional[Any] = None,
+    upstream_allowlist: Optional[List[str]] = None,
     timeout_s: float = 120.0,
 ) -> FastAPI:
     gw = GovernanceGateway(
@@ -1089,7 +1131,8 @@ def build_governance_gateway(
         admin_key=admin_key, auth=auth, wallet=wallet, signer=signer,
         http_post=http_post, http_stream=http_stream, cache=cache,
         semantic_cache=semantic_cache, compressor=compressor,
-        cascades=cascades, router=router, timeout_s=timeout_s,
+        cascades=cascades, router=router,
+        upstream_allowlist=upstream_allowlist, timeout_s=timeout_s,
     )
     app = FastAPI(title="Pluginfer Signet — AI Spend Gateway")
     app.state.gateway = gw
@@ -1448,6 +1491,8 @@ def main() -> int:
                                      "0") == "1"),
         semantic_cache=semantic_cache, compressor=compressor,
         cascades=cascades, router=router,
+        upstream_allowlist=[u for u in os.environ.get(
+            "PLUGINFER_GW_UPSTREAMS", "").split(",") if u.strip()],
     )
     import uvicorn
     from governance import BANNER
