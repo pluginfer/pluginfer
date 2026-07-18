@@ -331,11 +331,14 @@ class AnchorScheduler(threading.Thread):
         self.head_fn = head_fn
         self.interval_s = max(1.0, float(interval_s))
         self.tick_s = max(0.05, min(tick_s, self.interval_s))
-        self._stop = threading.Event()
+        # NOT named `_stop`: on Python <= 3.12 threading.Thread has an
+        # internal `_stop()` METHOD that join() calls — shadowing it
+        # with an Event raises "'Event' object is not callable".
+        self._stop_evt = threading.Event()
         self._last_attempt = 0.0
 
     def run(self) -> None:
-        while not self._stop.wait(self.tick_s):
+        while not self._stop_evt.wait(self.tick_s):
             now = time.monotonic()
             if now - self._last_attempt < self.interval_s:
                 continue
@@ -347,7 +350,7 @@ class AnchorScheduler(threading.Thread):
                 logger.warning("scheduled anchoring failed: %s", e)
 
     def stop(self) -> None:
-        self._stop.set()
+        self._stop_evt.set()
 
 
 __all__ = [
