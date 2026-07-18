@@ -37,6 +37,30 @@ and get refused with HTTP 402, cache hits land at $0, and the signed
 receipt chain verify itself. Then hit `/demo/tamper` and watch the
 audit badge catch the edit.
 
+## Everything it does — at a glance
+
+Full setup guides for each item: [docs/SETUP_GUIDES.md](docs/SETUP_GUIDES.md).
+
+| Feature | One line |
+|---|---|
+| **Fail-closed budget caps** | Overruns are refused with HTTP 402 *before* money leaves — structurally impossible, not an alert |
+| **Signed, hash-chained receipts** | Ed25519 audit chain; any edit is caught at the exact receipt, third-party verifiable |
+| **Multi-LLM routing** | Any number of models on different providers behind one endpoint; `save`/`smart` auto-modes or full custom rules |
+| **Measured savings** | Exact + semantic cache, cascade, compression — counterfactuals from real bills, never projections |
+| **Spend attribution** | By envelope, model, and API-key fingerprint — internal chargeback from signed data |
+| **One-command mesh node** | `pluginfer up` — hardware detect, wallet, models, browser control panel, self-supervising |
+| **Share & earn** | `--share` auto-tunnels your node so the mesh can send you jobs; zero router config |
+| **Private enterprise mesh** | `--swarm-key` links your datacenters over the internet, authenticated, no VPN project |
+| **Sealed-bid auction** | Every job goes to the cheapest node meeting cost/latency/quality/privacy limits |
+| **Quorum verification** | K-of-N majority vote so one lying node can't corrupt a result |
+| **Free testnet, no token ever** | Faucet grants starter credits; the ledger is plain USD and audits itself |
+| **Python & JS SDKs** | Typed clients for jobs, streaming, wallets — both entry points tested |
+| **Consortium jobs** | Too big for one node → split across the N best providers, each paid its share |
+| **Disconnect-proof streaming** | SSE with delta cursors — reconnect and resume, no lost or double-billed tokens |
+| **Failover & hot migration** | A provider dying mid-job doesn't kill the job |
+| **Attestation & encryption** | Hardware challenges, a TEE path for private jobs, encrypted payloads |
+| **Ops surface** | Prometheus `/metrics`, structured JSON logs, energy + carbon on receipts |
+
 ## Signet — the AI spend gateway that signs its receipts
 
 Point your apps at the gateway instead of `api.openai.com` /
@@ -103,7 +127,7 @@ honest mitigation for untrusted compute. We publish
 [AUDIT.md](AUDIT.md) so nobody has to take our word for which claims
 are proven, mitigated, or open.
 
-**Mesh at a glance:**
+### Mesh at a glance
 
 - **One command to join** — `pluginfer up` runs a node; add `--share`
   and a free auto-tunnel makes it reachable worldwide with no router
@@ -142,7 +166,7 @@ are proven, mitigated, or open.
 Per-feature setup guides — exact commands for everything below —
 live in [docs/SETUP_GUIDES.md](docs/SETUP_GUIDES.md).
 
-**Also inside — built and tested, less shouted about:**
+### Also inside — built and tested, less shouted about
 
 - **Python & JavaScript SDKs** (`v2/sdk/`) — submit jobs, stream, and
   wait for results from code instead of raw HTTP.
@@ -170,7 +194,9 @@ the bar for being listed. Experimental work (WAN-tolerant DiLoCo
 training, mesh mixture-of-experts, browser-tab providers) lives in the
 code with tests but stays out of this list until proven end-to-end.
 
-**Two-strangers WAN run: cleared.** A GitHub-hosted runner (a machine
+### Two-strangers WAN run: cleared
+
+A GitHub-hosted runner (a machine
 on Microsoft's network) submitted a job to a node behind a home router
 NAT, over the open internet, with no shared network and no seed — the
 home node executed and signed it. It's a public, re-runnable proof:
