@@ -153,6 +153,11 @@ jobs:
       - name: Build sdist + wheel
         working-directory: v2/sdk/python
         run: |
+          # Stamp the package version from the release tag so PyPI always
+          # matches the GitHub release — no manual bump to forget.
+          V="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version = .*/version = \"$V\"/" pyproject.toml
+          rm -rf dist
           python -m pip install --upgrade pip build
           python -m build
       - name: Publish to PyPI (trusted publisher, no token)
@@ -176,6 +181,8 @@ jobs:
       - name: Build TypeScript SDK
         working-directory: v2/sdk/javascript
         run: |
+          # Same tag-derived version stamp as the PyPI job.
+          npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
           npm ci || npm install
           npm run build
       - name: Publish to npm

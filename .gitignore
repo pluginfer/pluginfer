@@ -290,3 +290,8 @@ v2/ai/filum/hpa/PATENT_*.md
 v2/tools/patent_packager.py
 v2/tests/test_patent_packager.py
 secrets/
+v2/sdk/python/dist/
+v2/sdk/python/*.egg-info/
+v2/sdk/javascript/dist/
+v2/sdk/javascript/dist-cjs/
+v2/sdk/javascript/node_modules/
