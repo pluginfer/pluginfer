@@ -477,19 +477,27 @@ class GovernanceGateway:
         with self._receipts_lock:
             receipts = list(self._receipts)
         cache_saved = cascade_saved = escalation_cost = 0.0
-        semantic_saved = routing_saved = 0.0
+        semantic_saved = 0.0
+        # Routing is a SIGNED net: 'save' routes earn positive savings,
+        # 'smart' upgrades on hard tasks spend more (negative). Netting
+        # them here is the honest number — an upgrade cost can never be
+        # laundered into the savings total.
+        routing_net = 0.0
         by_envelope: Dict[str, float] = {}
         for r in receipts:
             s = float(r.get("saved_usd", 0.0) or 0.0)
+            kind = r.get("kind")
+            if kind == "routed":
+                routing_net += s
+                env = str(r.get("envelope", "default"))
+                by_envelope[env] = by_envelope.get(env, 0.0) + s
+                continue
             if not s:
                 continue
-            kind = r.get("kind")
             if s > 0 and kind == "cache_hit":
                 cache_saved += s
             elif s > 0 and kind == "semantic_cache_hit":
                 semantic_saved += s
-            elif s > 0 and kind == "routed":
-                routing_saved += s
             elif s > 0:
                 cascade_saved += s
             else:
@@ -509,14 +517,16 @@ class GovernanceGateway:
             "semantic_cache": sem_stats,
             "semantic_saved_usd": round(semantic_saved, 8),
             "cascade_saved_usd": round(cascade_saved, 8),
-            "routing_saved_usd": round(routing_saved, 8),
+            # Signed: positive when auto-save wins net, negative when
+            # smart-mode quality upgrades cost more than they saved.
+            "routing_saved_usd": round(routing_net, 8),
             "cascade_escalation_cost_usd": round(escalation_cost, 8),
-            # Measured net — cache + semantic + cascade + routing −
+            # Measured net — cache + semantic + cascade + routing(net) −
             # escalation. Compression is ESTIMATED and shown separately,
             # NEVER folded into the measured net a CFO would quote.
             "net_saved_usd": round(
                 cache_saved + semantic_saved + cascade_saved
-                + routing_saved - escalation_cost, 8),
+                + routing_net - escalation_cost, 8),
             "compression_saved_est_usd": comp_est,
             "by_envelope": {k: round(v, 8)
                             for k, v in sorted(by_envelope.items())},
@@ -939,15 +949,18 @@ class GovernanceGateway:
         if self.semantic_cache is not None:
             self.semantic_cache.put(body, resp_json, float(actual))
 
-        # Routing saving — MEASURED: the requested model's price at the
-        # ACTUAL usage minus what was paid. Only computed when real
-        # usage arrived; estimates never mint savings.
+        # Routing delta — MEASURED and SIGNED: the requested model's
+        # price at the ACTUAL usage minus what was paid. Positive when a
+        # cheaper model served (auto-save); NEGATIVE when smart-mode
+        # upgraded a hard task to a costlier model. We record the true
+        # signed value — never clamp the upgrade cost to zero, which
+        # would hide the extra spend. Estimates never mint savings.
         route_saved = 0.0
         if route_info is not None and not estimated:
             req_cost = self._cost_usd(route_info["from"], real_in,
                                       real_out)
             if req_cost is not None:
-                route_saved = max(0.0, req_cost - float(actual))
+                route_saved = float(req_cost) - float(actual)
         net_saved = round(route_saved - cheap_cost, 8)
         receipt = self._emit_receipt({
             "kind": ("cascade_escalate" if cascade_info
@@ -1428,14 +1441,20 @@ def main() -> int:
         from governance.router import ModelRouter
         with open(routes_path, encoding="utf-8") as f:
             router = ModelRouter(json.load(f))
-    elif os.environ.get("PLUGINFER_GW_AUTOROUTE", "").lower() == "save":
-        # Zero-config cost saver: route simple tasks to the cheapest
-        # priced model, never downgrading code/long-context. A no-op
-        # (empty rules) when there is nothing to optimize.
-        from governance.router import ModelRouter, auto_save_rules
-        rules = auto_save_rules(price_sheet)
-        if rules:
-            router = ModelRouter(rules)
+    else:
+        # Zero-config auto-routing from your own price sheet:
+        #   save  -> easy tasks to cheapest; hard tasks left untouched.
+        #   smart -> easy to cheapest AND hard (code/long) to the most
+        #            capable model (may cost more — recorded honestly).
+        # No-op (empty rules) when there is nothing to optimize.
+        _auto = os.environ.get("PLUGINFER_GW_AUTOROUTE", "").lower()
+        if _auto in ("save", "smart"):
+            from governance.router import (
+                ModelRouter, auto_save_rules, auto_smart_rules)
+            rules = (auto_smart_rules(price_sheet) if _auto == "smart"
+                     else auto_save_rules(price_sheet))
+            if rules:
+                router = ModelRouter(rules)
     from governance.budget_ledger import BudgetLedger
     budget = BudgetLedger(
         os.environ.get("PLUGINFER_BUDGET_DIR",

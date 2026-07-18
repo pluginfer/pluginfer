@@ -159,3 +159,39 @@ def test_auto_save_gateway_measures_saving():
         assert r.status_code == 200
         assert r.headers["X-Pluginfer-Routed"] == "gpt-big->gpt-mini"
         assert float(r.headers["X-Pluginfer-Saved-USD"]) > 0
+
+
+# ---------------------------------------------------------------------------
+# Smart mode: hard tasks -> biggest model, upgrade cost recorded honestly
+# ---------------------------------------------------------------------------
+
+def test_smart_routes_hard_to_biggest_easy_to_cheapest():
+    from governance.router import auto_smart_rules, ModelRouter
+    r = ModelRouter(auto_smart_rules(PRICES))
+    assert r.route({"messages": [{"role": "user",
+                    "content": "refactor this def f(): pass"}]}, "e")[0] == "gpt-big"
+    assert r.route({"messages": [{"role": "user",
+                    "content": "hey how are you"}]}, "e")[0] == "gpt-mini"
+
+
+def test_smart_upgrade_cost_is_negative_saving_not_hidden():
+    from governance.router import auto_smart_rules
+    calls = []
+    app = build_governance_gateway(
+        budget=BudgetLedger(), upstream_base="https://up.example",
+        price_sheet=PRICES, http_post=_upstream(calls),
+        router=ModelRouter(auto_smart_rules(PRICES)))
+    with TestClient(app) as c:
+        # Ask for the CHEAP model on a CODE task -> smart upgrades to big.
+        r = c.post("/v1/chat/completions", json={
+            "model": "gpt-mini",
+            "messages": [{"role": "user", "content": "debug this stack trace"}]})
+        assert r.status_code == 200
+        assert r.headers["X-Pluginfer-Routed"] == "gpt-mini->gpt-big"
+        sav = c.get("/v1/savings/summary").json() if False else None
+    # The routing net must be NEGATIVE (we spent more for quality) — the
+    # upgrade cannot be laundered into positive savings.
+    gw = app.state.gateway
+    summary = gw.savings_summary()
+    assert summary["routing_saved_usd"] < 0
+    assert summary["net_saved_usd"] <= 0

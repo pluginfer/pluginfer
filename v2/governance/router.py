@@ -42,20 +42,20 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-__all__ = ["ModelRouter", "classify_task", "auto_save_rules"]
+__all__ = ["ModelRouter", "classify_task",
+           "auto_save_rules", "auto_smart_rules"]
 
-# Tasks safe to serve on a cheaper model. Code and long-context are
-# deliberately EXCLUDED — auto-save never trades quality where it hurts.
-_AUTO_SAVE_TASKS = ("chat", "summarize", "extract")
+# Easy tasks — safe to serve on the cheapest model.
+_EASY_TASKS = ("chat", "summarize", "extract")
+# Hard tasks — deserve the most capable model.
+_HARD_TASKS = ("code", "long")
 
 
-def auto_save_rules(price_sheet: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Synthesize routing rules from the operator's own price sheet:
-    send simple tasks to the cheapest model. Returns [] when there is
-    nothing to optimize (fewer than two priced models) — an honest
-    no-op rather than a fake route. The cheapest model is ranked by
-    input+output price per 1M tokens.
-    """
+def _ranked_by_price(price_sheet: Dict[str, Any]) -> List[str]:
+    """Model ids cheapest-first, ranked by input+output price per 1M
+    tokens. Price is the only capability signal a price sheet carries,
+    so 'biggest/most capable' == 'most expensive' here — a proxy, and
+    an honest one to name as such."""
     priced = []
     for model, p in (price_sheet or {}).items():
         try:
@@ -64,13 +64,37 @@ def auto_save_rules(price_sheet: Dict[str, Any]) -> List[Dict[str, Any]]:
         except (TypeError, ValueError):
             continue
         priced.append((cost, model))
-    if len(priced) < 2:
-        return []
     priced.sort()
-    cheapest = priced[0][1]
-    return [{"id": f"auto-save-{task}",
-             "when": {"task": task}, "use": cheapest}
-            for task in _AUTO_SAVE_TASKS]
+    return [m for _, m in priced]
+
+
+def auto_save_rules(price_sheet: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Cost saver: send EASY tasks to the cheapest model; leave hard
+    tasks on whatever was requested (never downgrade code/long). [] when
+    there is nothing to optimize (<2 priced models)."""
+    ranked = _ranked_by_price(price_sheet)
+    if len(ranked) < 2:
+        return []
+    cheapest = ranked[0]
+    return [{"id": f"auto-save-{t}", "when": {"task": t}, "use": cheapest}
+            for t in _EASY_TASKS]
+
+
+def auto_smart_rules(price_sheet: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Task-matched routing: EASY tasks -> cheapest model, HARD tasks
+    (code, long-context) -> most capable (most expensive) model. This
+    can raise cost on hard prompts — that's the point (better answers
+    where they matter), and the extra spend is recorded truthfully as a
+    negative routing saving, never hidden. [] when <2 priced models."""
+    ranked = _ranked_by_price(price_sheet)
+    if len(ranked) < 2:
+        return []
+    cheapest, biggest = ranked[0], ranked[-1]
+    rules = [{"id": f"auto-smart-{t}", "when": {"task": t}, "use": cheapest}
+             for t in _EASY_TASKS]
+    rules += [{"id": f"auto-smart-{t}", "when": {"task": t}, "use": biggest}
+              for t in _HARD_TASKS]
+    return rules
 
 _CODE = re.compile(r"(?i)\b(def |class |function|import |```|bug|stack"
                    r" ?trace|compile|refactor|unit test|regex|sql)\b")
