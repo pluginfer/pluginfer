@@ -694,12 +694,20 @@ def build_node_app(*, my_pubkey: str, my_wallet, node_id: str):
     # Our own compute serves as the local provider — peers can route to
     # us. The spec is derived from the RESOLVED runtime so receipts
     # stamp the model that actually answered, never a catalogue default.
-    register_alpha_flagship(
-        jobs_service=svc,
-        spec=spec_for_runtime(runtime_model_id, runtime_name),
-        runner_fn=runner_fn,
-        wallet=my_wallet,
-    )
+    # PLUGINFER_BUYER_ONLY=1 makes this a pure CLIENT node: it registers
+    # no local compute and only consumes mesh peers' compute — the
+    # honest shape for a laptop/app that buys inference but never sells
+    # it. (Also makes cross-node routing deterministic: with no local
+    # bidder, a submitted job MUST run on a peer.)
+    if os.environ.get("PLUGINFER_BUYER_ONLY", "0") != "1":
+        register_alpha_flagship(
+            jobs_service=svc,
+            spec=spec_for_runtime(runtime_model_id, runtime_name),
+            runner_fn=runner_fn,
+            wallet=my_wallet,
+        )
+    else:
+        logger.info("buyer_only mode: no local compute registered")
 
     # If a mesh-llm node (github.com/Mesh-LLM/mesh-llm) is serving on
     # this machine, its ENTIRE mesh becomes one more bidder in our
@@ -1389,6 +1397,11 @@ async def _run(args) -> None:
 
     my_port = int(args.node_port) if int(args.node_port) > 0 else _free_port()
     my_ip = _local_ip(args.bind_ip)
+    # Advertised port MAY differ from the bound port: behind a tunnel
+    # (ngrok/cloudflared TCP) or a port-forward, peers must reach us at
+    # the PUBLIC port while uvicorn binds the LOCAL one. Defaults to the
+    # bound port, so nothing changes for the common same-port case.
+    advertised_port = int(os.environ.get("PLUGINFER_PUBLIC_PORT") or my_port)
 
     app, svc = build_node_app(
         my_pubkey=my_pubkey, my_wallet=wallet, node_id=node_id,
@@ -1464,11 +1477,12 @@ async def _run(args) -> None:
         app, svc,
         seed_host=args.seed_host, seed_port=args.seed_port,
         my_pubkey=my_pubkey, my_wallet=wallet,
-        my_ip=my_ip, my_port=my_port,
+        my_ip=my_ip, my_port=advertised_port,
         bootstrap_peers=bootstrap_peers,
         # Explicit operator address always wins over NAT self-correction.
         ip_pinned=bool(
-            args.bind_ip or os.environ.get("PLUGINFER_PUBLIC_IP", "")),
+            args.bind_ip or os.environ.get("PLUGINFER_PUBLIC_IP", "")
+            or os.environ.get("PLUGINFER_PUBLIC_PORT", "")),
     ))
     try:
         await server.serve()
