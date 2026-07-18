@@ -67,6 +67,17 @@ STALE_TTL_S = float(__import__("os").environ.get(
 # Membership view
 # ---------------------------------------------------------------------------
 
+def peer_base_url(ip: str, port: int) -> str:
+    """Base URL for reaching a peer. Port 443 means the peer sits
+    behind TLS (a reverse proxy, load balancer, or tunnel like
+    Cloudflare/ngrok), so we speak https; every other port is plain
+    http as before. This is what lets a node advertise a public
+    hostname instead of only a raw LAN ip:port."""
+    if int(port) == 443:
+        return f"https://{ip}"
+    return f"http://{ip}:{port}"
+
+
 @dataclass
 class PeerEntry:
     pubkey_pem: str
@@ -79,7 +90,7 @@ class PeerEntry:
     device_type: Optional[str] = None
 
     def url(self) -> str:
-        return f"http://{self.ip}:{self.port}"
+        return peer_base_url(self.ip, self.port)
 
     def to_wire(self) -> Dict[str, Any]:
         return {

@@ -1168,7 +1168,8 @@ def _bind_peer_if_new(app, svc, *, my_pubkey: str, my_wallet,
         return False
     if pubkey_pem in app.state.peer_providers:
         return False
-    peer_url = f"http://{ip}:{port}"
+    from core.gossip_discovery import peer_base_url
+    peer_url = peer_base_url(ip, port)
 
     # Relay-pool getter: returns every OTHER known peer's (url, pubkey).
     # The cross-node uses this list as relay candidates when its
@@ -1238,7 +1239,9 @@ async def discovery_loop(
             qs = _announce_query_string(
                 my_pubkey, my_ip, my_port, NODE_VERSION,
             )
-            bp_url = f"http://{host_port[0]}:{int(host_port[1])}/peers{qs}"
+            from core.gossip_discovery import peer_base_url
+            bp_url = (peer_base_url(host_port[0], int(host_port[1]))
+                      + f"/peers{qs}")
             payload = await asyncio.get_running_loop().run_in_executor(
                 None, lambda u=bp_url: _http_get_json(u, timeout=3.0),
             )

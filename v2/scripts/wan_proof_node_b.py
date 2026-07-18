@@ -54,9 +54,16 @@ def main() -> int:
     if len(sys.argv) < 2 or ":" not in sys.argv[1]:
         print("FAIL: need Node A address as <host:port>", flush=True)
         return 2
-    bootstrap = sys.argv[1].strip().replace("tcp://", "")
-    a_host, a_port = bootstrap.split(":")
-    a_base = f"http://{a_host}:{int(a_port)}"
+    bootstrap = (sys.argv[1].strip()
+                 .replace("tcp://", "").replace("https://", "")
+                 .replace("http://", "").rstrip("/"))
+    if ":" in bootstrap:
+        a_host, a_port = bootstrap.split(":")
+    else:
+        a_host, a_port = bootstrap, "443"   # bare hostname = TLS tunnel
+    a_port = int(a_port)
+    bootstrap = f"{a_host}:{a_port}"
+    a_base = f"https://{a_host}" if a_port == 443 else f"http://{a_host}:{a_port}"
     print(f"[node-B] Node A tunnel: {a_base}", flush=True)
 
     # Sanity: can we even reach Node A over the WAN before we start?
