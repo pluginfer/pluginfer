@@ -1,0 +1,13 @@
+# Lean dependency set for the devserver Docker image (api/Dockerfile).
+# The image copies only api/ + core/ + ai/ and runs `python -m
+# api.devserver` — this list is the verified import closure for that
+# entrypoint (boot-tested in a clean venv; see WORKLOG 2026-07-18).
+# Heavy optional runtimes (torch, transformers) are deliberately absent:
+# the devserver is a shim/gateway, not a model host.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pydantic>=2.6
+sse-starlette>=2.0
+cryptography>=42.0
+requests>=2.31
+psutil>=5.9
