@@ -106,6 +106,7 @@
   <div class="tabs">
     <div class="tab active" data-p="plain">📖 Plain English</div>
     <div class="tab" data-p="tech">📊 Technical</div>
+    <div class="tab" data-p="routing">🔀 Routing</div>
     <div class="tab" data-p="logs">🧾 Logs &amp; audit</div>
   </div>
 
@@ -146,6 +147,23 @@
       <div id="savebars"><div class="empty">no savings yet</div></div></section>
     <section><h2>Spend by API key <span class="note">— fingerprints, never raw keys</span></h2>
       <div id="keybars"><div class="empty">no keyed calls yet</div></div></section>
+  </div>
+
+  <div class="panel" id="p-routing">
+    <div class="tiles" style="margin-bottom:22px">
+      <div class="tile saved"><div class="label">Net routing saved (measured)</div>
+        <div class="value" id="rt-net">–</div>
+        <div class="hint">positive = cheaper model served; negative = smart upgrade</div></div>
+      <div class="tile"><div class="label">Routing decisions</div>
+        <div class="value" id="rt-count">–</div>
+        <div class="hint">calls rerouted by the Signet router</div></div>
+    </div>
+    <section><h2>Routing decisions <span class="note">— requested → served, from signed receipts</span></h2>
+      <div class="wrap"><table>
+        <thead><tr><th>time</th><th>requested</th><th></th><th>served</th>
+          <th>task</th><th>envelope</th><th class="num">saved $</th></tr></thead>
+        <tbody id="rtbody"><tr><td colspan="7" class="empty">no routing decisions yet</td></tr></tbody>
+      </table></div></section>
   </div>
 
   <div class="panel" id="p-logs">
@@ -234,7 +252,33 @@ async function refresh() {
       .map(([k,v]) => [k, v.spend_usd, v.calls + " calls · " + v.envelopes.join(", ")]).sort((a,b)=>b[1]-a[1]);
     bars($("keybars"), ke, Math.max(...ke.map(e=>Math.abs(e[1])),0));
 
-    const rows = (rcpts.receipts || []).slice().reverse().map(r => {
+    // Routing decisions panel — filter to kind=="routed" only.
+    const allReceipts = (rcpts.receipts || []).slice().reverse();
+    const routedReceipts = allReceipts.filter(r => r.kind === "routed");
+    $("rt-net").textContent = usd(sav.routing_saved_usd || 0);
+    $("rt-net").className = "value" + (+sav.routing_saved_usd > 0 ? " g" : "");
+    $("rt-count").textContent = routedReceipts.length;
+    const rtRows = routedReceipts.map(r => {
+      const saved = +(r.saved_usd || 0);
+      const cls = saved > 0 ? "pos" : saved < 0 ? "negv" : "";
+      const task = (r.routing && r.routing.task) || "—";
+      const requested = r.requested_model || "—";
+      const served = r.model || "—";
+      return `<tr>
+        <td>${new Date(r.ts*1000).toLocaleTimeString()}</td>
+        <td>${requested}</td>
+        <td style="color:var(--text-muted);padding:0 4px">→</td>
+        <td>${served}</td>
+        <td><span class="kind">${task}</span></td>
+        <td>${r.envelope||""}</td>
+        <td class="num ${cls}">${saved ? (saved > 0 ? "+" : "") + saved.toFixed(6) : "—"}</td>
+      </tr>`;
+    });
+    $("rtbody").innerHTML = rtRows.length ? rtRows.join("")
+      : '<tr><td colspan="7" class="empty">no routing decisions yet</td></tr>';
+
+    // Receipt log panel.
+    const rows = allReceipts.map(r => {
       const saved = +(r.saved_usd || 0);
       const cls = saved > 0 ? "pos" : saved < 0 ? "negv" : "";
       const note = r.cutoff ? "budget cutoff" : r.estimated ? "estimated"
