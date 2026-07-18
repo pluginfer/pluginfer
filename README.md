@@ -124,6 +124,48 @@ are proven, mitigated, or open.
 - **Signed receipts end to end** — every job and every settlement is
   Ed25519-signed and independently verifiable, on both the gateway and
   the mesh.
+- **Private enterprise mesh** — connect your own datacenters into one
+  compute pool over the open internet, no VPN project required:
+  `pluginfer up --share --swarm-key <secret>` on each site, same key
+  everywhere. Nodes and clients without the key get `401` on every mesh
+  surface (joins, jobs, ledger — one middleware choke point, so no
+  endpoint can forget the check); the auction then arbitrates each job
+  across your sites by price, latency, and privacy class, and the signed
+  receipts double as internal chargeback records. Proven live: a keyed
+  node behind a tunnel refused strangers and wrong keys (401) while a
+  keyed peer on another network formed the mesh and cleared a signed
+  job. Honest scope: this is one shared symmetric key (the API-key trust
+  model) — it keeps strangers out but has no per-node identity or
+  revocation yet, and it requires TLS transport (`--share` tunnels are
+  https; put a TLS-terminating proxy in front of a datacenter node).
+
+**Also inside — built and tested, less shouted about:**
+
+- **Python & JavaScript SDKs** (`v2/sdk/`) — submit jobs, stream, and
+  wait for results from code instead of raw HTTP.
+- **Anthropic shim too** — the devserver is a drop-in for OpenAI *and*
+  Anthropic client libraries.
+- **Bring-your-own supply** — any OpenAI-compatible endpoint (Ollama,
+  vLLM, a friend's box) can be wrapped as one more bidder in the
+  auction (`meshllm` bridge provider).
+- **Consortium jobs** — a job too big for one node is split across the
+  N best providers, each paid its share.
+- **Disconnect-proof streaming** — SSE with a delta cursor: drop the
+  connection mid-stream, reconnect, resume from the last chunk.
+- **Mid-execution failover & hot migration** — a provider dying
+  mid-job doesn't kill the job.
+- **Hardware attestation** — nodes are challenged to prove the
+  hardware they claim; a TEE-attestation path covers private jobs, and
+  payloads are encrypted in transit.
+- **Money-ops maturity** — idempotent payments, a dispute window on
+  settlements, and a tax-report export from the signed ledger.
+- **Ops surface** — Prometheus-format `/metrics`, structured JSON
+  logs, energy + carbon figures stamped on receipts.
+
+Each line above has its own passing test suite in `v2/tests/` — that's
+the bar for being listed. Experimental work (WAN-tolerant DiLoCo
+training, mesh mixture-of-experts, browser-tab providers) lives in the
+code with tests but stays out of this list until proven end-to-end.
 
 **Two-strangers WAN run: cleared.** A GitHub-hosted runner (a machine
 on Microsoft's network) submitted a job to a node behind a home router

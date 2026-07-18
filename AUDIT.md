@@ -23,7 +23,12 @@ Two products live here:
    two-node run has cleared (a home node behind NAT served a signed job
    submitted by a cloud runner — public `wan-proof` workflow); the
    still-open step is two *independent home networks* introduced by a
-   hosted seed.
+   hosted seed. Private meshes (one org's datacenters) are gated by a
+   shared swarm key (`PLUGINFER_SWARM_KEY`) enforced in one middleware
+   on every mesh surface — verified live: 401 for strangers/wrong keys
+   through a real tunnel, keyed peer cleared a signed job. Stated
+   limits: symmetric shared key, no per-node identity/revocation yet,
+   TLS transport required (tunnel or reverse proxy).
 
 ## Shortfalls the audit named, and their status
 

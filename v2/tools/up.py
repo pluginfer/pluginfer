@@ -177,9 +177,20 @@ def main(argv: Optional[List[str]] = None) -> None:
                     help="Make this node reachable by the whole mesh via a "
                          "free auto-tunnel, so others can send it jobs. "
                          "Without this, the node is local-only.")
+    ap.add_argument("--swarm-key", default=None,
+                    help="Form/join a PRIVATE mesh: only nodes and clients "
+                         "presenting this shared key can join or send jobs. "
+                         "Set the same key on every node (e.g. each of your "
+                         "datacenters). Omit for the public mesh.")
     args = ap.parse_args(argv)
     # PLUGINFER_SHARE=1 is the env-equivalent (for installers / one-click).
     share = args.share or os.environ.get("PLUGINFER_SHARE", "0") == "1"
+    if args.swarm_key:
+        os.environ["PLUGINFER_SWARM_KEY"] = args.swarm_key
+    if os.environ.get("PLUGINFER_SWARM_KEY", "").strip():
+        _say("")
+        _say("  PRIVATE SWARM: this node only talks to nodes/clients that "
+             "present your swarm key.")
 
     # Windows consoles (and redirected stdout) default to cp1252, which
     # hard-crashes on the first non-ASCII char ANY imported module ever

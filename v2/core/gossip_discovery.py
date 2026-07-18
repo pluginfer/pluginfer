@@ -183,7 +183,11 @@ class MembershipView:
 
 def _http_get_json(url: str, *, timeout: float = 3.0) -> Optional[dict]:
     try:
-        with urllib.request.urlopen(url, timeout=timeout) as r:
+        # Private-swarm key rides on every gossip/announce call so keyed
+        # peers accept us; a no-op (empty headers) on public meshes.
+        from core.swarm_auth import auth_headers
+        req = urllib.request.Request(url, headers=auth_headers())
+        with urllib.request.urlopen(req, timeout=timeout) as r:
             return json.loads(r.read().decode("utf-8"))
     except (urllib.error.URLError, OSError, ValueError):
         return None

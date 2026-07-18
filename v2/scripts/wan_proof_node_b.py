@@ -36,8 +36,15 @@ def _free_port() -> int:
     return p
 
 
+def _swarm_headers() -> dict:
+    # Private-swarm proof runs set PLUGINFER_SWARM_KEY; the key must ride
+    # on every call to a keyed Node A, exactly like any mesh client.
+    from core.swarm_auth import auth_headers
+    return auth_headers()
+
+
 def _get(url: str, timeout: float = 8.0):
-    req = urllib.request.Request(url)
+    req = urllib.request.Request(url, headers=_swarm_headers())
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, json.loads(r.read().decode("utf-8")), dict(r.headers.items())
 
@@ -45,7 +52,8 @@ def _get(url: str, timeout: float = 8.0):
 def _post(url: str, body: dict, timeout: float = 45.0):
     req = urllib.request.Request(
         url, data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json"}, method="POST")
+        headers={"Content-Type": "application/json", **_swarm_headers()},
+        method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.status, json.loads(r.read().decode("utf-8")), dict(r.headers.items())
 

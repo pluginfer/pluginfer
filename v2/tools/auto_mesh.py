@@ -379,9 +379,12 @@ class _CrossNodeProvider:
             return
         import urllib.error
         import urllib.request
+        from core.swarm_auth import auth_headers
         try:
             with urllib.request.urlopen(
-                f"{self.peer_url}/v1/hardware", timeout=2.0,
+                urllib.request.Request(f"{self.peer_url}/v1/hardware",
+                                       headers=auth_headers()),
+                timeout=2.0,
             ) as r:
                 self._peer_hw = json.loads(r.read().decode("utf-8"))
                 self._peer_score = float(
@@ -508,9 +511,10 @@ class _CrossNodeProvider:
         (payload_dict, headers_dict, error_str_or_None)."""
         import urllib.error
         import urllib.request
+        from core.swarm_auth import auth_headers
         req = urllib.request.Request(
             url, data=body_bytes,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **auth_headers()},
         )
         try:
             with urllib.request.urlopen(req, timeout=timeout_s) as r:
@@ -736,6 +740,29 @@ def build_node_app(*, my_pubkey: str, my_wallet, node_id: str):
     app = build_devserver_app(
         jobs_service=svc, title=f"Pluginfer Auto-Mesh Node {node_id}",
     )
+
+    # Private-swarm lock: with PLUGINFER_SWARM_KEY set, EVERY endpoint
+    # (join, jobs, ledger, faucet — all of it) requires the key. One
+    # middleware choke point so no future endpoint can forget the check.
+    # Key unset = public mesh, byte-identical behavior.
+    from core.swarm_auth import is_authorized as _swarm_ok
+    from core.swarm_auth import swarm_key as _swarm_key
+
+    @app.middleware("http")
+    async def _swarm_gate(request, call_next):
+        client_host = request.client.host if request.client else None
+        if not _swarm_ok(request.headers, client_host,
+                         path=request.url.path):
+            from fastapi.responses import JSONResponse as _JR
+            return _JR(status_code=401, content={
+                "error": "private swarm: missing or wrong "
+                         "X-Pluginfer-Swarm-Key"})
+        return await call_next(request)
+
+    if _swarm_key():
+        logger.info("private swarm mode: all mesh traffic requires the "
+                    "swarm key (PLUGINFER_SWARM_KEY is set)")
+
     app.state.my_pubkey = my_pubkey
     app.state.my_node_id = node_id
     app.state.discovered_peers = []
@@ -1080,10 +1107,11 @@ def build_node_app(*, my_pubkey: str, my_wallet, node_id: str):
         if target_url is None:
             raise HTTPException(404, "peer not in our membership view")
         body = await request.body()
+        from core.swarm_auth import auth_headers
         req = urllib.request.Request(
             f"{target_url}/v1/chat/completions",
             data=body,
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", **auth_headers()},
         )
         try:
             with urllib.request.urlopen(req, timeout=45.0) as r:

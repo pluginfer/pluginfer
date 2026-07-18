@@ -123,9 +123,28 @@ const $ = id => document.getElementById(id);
 let WALLET = null;
 const usd = v => '$' + Number(v || 0).toFixed(2);
 
+// Private-swarm support: if the node answers 401, ask for the swarm key
+// once, remember it in this browser, and retry. Public nodes never 401.
+async function api(url, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers);
+  const k = localStorage.getItem('swarm_key');
+  if (k) opts.headers['X-Pluginfer-Swarm-Key'] = k;
+  let r = await fetch(url, opts);
+  if (r.status === 401) {
+    const entered = prompt('This node is in a private swarm.\nEnter the swarm key:');
+    if (entered) {
+      localStorage.setItem('swarm_key', entered);
+      opts.headers['X-Pluginfer-Swarm-Key'] = entered;
+      r = await fetch(url, opts);
+    }
+  }
+  return r;
+}
+
 async function refresh() {
   try {
-    const s = await (await fetch('/v1/node/status')).json();
+    const s = await (await api('/v1/node/status')).json();
     WALLET = s.wallet_id;
     $('s_peers').textContent = s.peers;
     $('s_jobs').textContent = s.jobs_served;
@@ -151,7 +170,7 @@ $('faucet').onclick = async () => {
   if (!WALLET) return;
   $('faucet').disabled = true; $('faucetmsg').textContent = ' …';
   try {
-    const r = await fetch('/v1/testnet/faucet', {
+    const r = await api('/v1/testnet/faucet', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({wallet_id: WALLET})});
     const d = await r.json();
@@ -167,7 +186,7 @@ $('send').onclick = async () => {
   $('send').disabled = true; $('sendmsg').textContent = ' thinking…';
   $('answer').style.display = 'none';
   try {
-    const r = await fetch('/v1/chat/completions', {
+    const r = await api('/v1/chat/completions', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({model:'pluginfer-alpha',
         messages:[{role:'user', content:q}], max_tokens:120})});
