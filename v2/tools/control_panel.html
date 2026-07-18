@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pluginfer — your node</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --ink:#111; --sub:#666; --line:#e6e6e6;
+          --green:#0a8f3c; --accent:#2f6df6; --accent2:#eef3ff; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14161a; --card:#1d2026; --ink:#f2f3f5; --sub:#9aa0aa;
+            --line:#2b2f37; --green:#3fd07a; --accent:#6ea0ff; --accent2:#20293c; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:16px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif; }
+  .wrap { max-width:760px; margin:0 auto; padding:24px 16px 72px; }
+  h1 { font-size:24px; margin:8px 0 2px; display:flex; align-items:center; gap:10px; }
+  .dot { width:11px; height:11px; border-radius:50%; background:var(--green);
+         box-shadow:0 0 0 4px color-mix(in srgb, var(--green) 25%, transparent); }
+  .sub { color:var(--sub); margin:0 0 18px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px;
+          padding:18px 20px; margin:14px 0; }
+  .card h2 { font-size:13px; margin:0 0 12px; letter-spacing:.04em;
+             text-transform:uppercase; color:var(--sub); }
+  .row { display:flex; justify-content:space-between; gap:12px; padding:6px 0;
+         border-bottom:1px solid color-mix(in srgb, var(--line) 55%, transparent); }
+  .row:last-child { border-bottom:0; }
+  .row b { font-weight:600; text-align:right; }
+  .grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+  .stat { background:var(--bg); border:1px solid var(--line); border-radius:12px;
+          padding:14px; text-align:center; }
+  .stat .n { font-size:26px; font-weight:700; }
+  .stat .l { font-size:12px; color:var(--sub); margin-top:2px; }
+  button { font:inherit; font-weight:600; cursor:pointer; border:0; border-radius:10px;
+           padding:11px 16px; background:var(--accent); color:#fff; }
+  button:disabled { opacity:.5; cursor:default; }
+  textarea { font:inherit; width:100%; padding:11px 13px; border-radius:10px;
+             border:1px solid var(--line); background:var(--bg); color:var(--ink);
+             min-height:60px; resize:vertical; }
+  .muted { color:var(--sub); font-size:14px; }
+  .ok { color:var(--green); font-weight:600; }
+  .banner { background:var(--accent2); color:var(--accent); border-radius:10px;
+            padding:9px 13px; font-size:14px; font-weight:600; }
+  .answer { background:var(--bg); border:1px solid var(--line); border-radius:10px;
+            padding:12px 14px; margin-top:10px; white-space:pre-wrap; }
+  a { color:var(--accent); }
+  .spacer { height:10px; }
+  .how li { margin:7px 0; }
+  .how b { color:var(--ink); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1><span class="dot"></span> Your Pluginfer node</h1>
+  <p class="sub">This page is your whole control panel. No commands, no code.</p>
+  <div class="banner" id="econ">testnet — free to use, no real money yet</div>
+
+  <div class="card">
+    <h2>At a glance</h2>
+    <div class="grid">
+      <div class="stat"><div class="n" id="s_peers">0</div><div class="l">peers connected</div></div>
+      <div class="stat"><div class="n" id="s_jobs">0</div><div class="l">jobs answered</div></div>
+      <div class="stat"><div class="n" id="s_bidders">0</div><div class="l">bidders in auction</div></div>
+    </div>
+    <div class="spacer"></div>
+    <div class="row"><span>Reachability</span><b id="reach">…</b></div>
+    <div class="row"><span>Model serving now</span><b id="runtime">…</b></div>
+    <div class="row" id="urlrow" style="display:none">
+      <span>Your public address</span><b id="url" style="font-size:12px"></b></div>
+    <div class="row"><span>Your node ID</span><b id="nid" style="font-size:12px">…</b></div>
+  </div>
+
+  <div class="card">
+    <h2>Money — exactly what is what</h2>
+    <div class="row">
+      <span>Credits to spend <span class="muted">(buy AI from the mesh)</span></span>
+      <b class="big" id="bal">$0.00</b></div>
+    <div class="row">
+      <span>Earned serving others <span class="muted">(settled on this node)</span></span>
+      <b id="earned">$0.00</b></div>
+    <div class="row">
+      <span>Commission collected <span class="muted">(10% operator fee)</span></span>
+      <b id="commission">$0.00</b></div>
+    <div class="spacer"></div>
+    <button id="faucet">Get free test credits</button>
+    <span class="muted" id="faucetmsg"></span>
+    <p class="muted" style="margin-bottom:0">During testnet these are real, signed, persistent
+      records — but not cashable. At mainnet, credits are bought with real money and earnings
+      are paid out. There is no token, ever.</p>
+  </div>
+
+  <div class="card">
+    <h2>Try it</h2>
+    <p class="muted">Ask anything. Your node — or the best-priced peer — answers, and every
+       answer carries a signed receipt you can verify.</p>
+    <textarea id="prompt">Write a haiku about the sea.</textarea>
+    <div class="spacer"></div>
+    <button id="send">Send</button>
+    <span class="muted" id="sendmsg"></span>
+    <div class="answer" id="answer" style="display:none"></div>
+  </div>
+
+  <div class="card how">
+    <h2>How Pluginfer works — end to end</h2>
+    <ol class="how">
+      <li><b>You run a node</b> (this). It's an OpenAI-compatible AI gateway on your own machine.</li>
+      <li><b>Every request is auctioned.</b> Your node and any connected peers bid; the cheapest one that still meets your speed, quality and privacy limits wins. Your own machine wins when it's the best fit.</li>
+      <li><b>Every answer is signed.</b> A tamper-evident receipt proves what ran, what it cost, and who served it — nobody can fake or inflate it.</li>
+      <li><b>Share to earn.</b> Turn on sharing and other people's jobs can run on your machine. You earn on each one; the platform keeps a 10% commission.</li>
+      <li><b>The ledger audits itself.</b> Every balance must match its signed history; tampering or deletion is caught and blocks payouts. Check it yourself: <a href="/v1/ledger/verify">audit now</a>.</li>
+      <li><b>Testnet now, mainnet later.</b> Today everything is free to try. At mainnet, buyers pay real money (through a normal payment processor) and providers get paid out. No coin, no presale.</li>
+    </ol>
+  </div>
+
+  <p class="muted">Advanced: <a href="/peers">mesh status</a> ·
+     <a href="/v1/node/status">raw status (JSON)</a> ·
+     <a href="/v1/ledger/verify">ledger audit</a></p>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let WALLET = null;
+const usd = v => '$' + Number(v || 0).toFixed(2);
+
+async function refresh() {
+  try {
+    const s = await (await fetch('/v1/node/status')).json();
+    WALLET = s.wallet_id;
+    $('s_peers').textContent = s.peers;
+    $('s_jobs').textContent = s.jobs_served;
+    $('s_bidders').textContent = s.auction_size;
+    $('runtime').textContent = s.runtime_is_echo
+      ? 'demo echo — install Ollama for real models' : s.runtime;
+    $('nid').textContent = s.node_id;
+    if (s.shared && s.public_url) {
+      $('reach').textContent = 'Shared with the mesh 🌍';
+      $('url').textContent = s.public_url; $('urlrow').style.display = 'flex';
+    } else {
+      $('reach').textContent = 'Local only — restart with --share to go public';
+    }
+    $('bal').textContent = usd(s.balance_usd);
+    $('earned').textContent = usd(s.earned_usd);
+    $('commission').textContent = usd(s.commission_usd);
+    $('econ').textContent = s.economics_mode === 'testnet'
+      ? 'testnet — free to use, no real money yet' : 'MAINNET — real money is live';
+  } catch (e) { $('reach').textContent = 'starting…'; }
+}
+
+$('faucet').onclick = async () => {
+  if (!WALLET) return;
+  $('faucet').disabled = true; $('faucetmsg').textContent = ' …';
+  try {
+    const r = await fetch('/v1/testnet/faucet', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({wallet_id: WALLET})});
+    const d = await r.json();
+    $('faucetmsg').innerHTML = r.status === 200
+      ? ' <span class="ok">Added ' + d.granted_usd + ' credits ✓</span>'
+      : ' ' + (d.error || 'already claimed');
+  } catch (e) { $('faucetmsg').textContent = ' network error'; }
+  $('faucet').disabled = false; refresh();
+};
+
+$('send').onclick = async () => {
+  const q = $('prompt').value.trim(); if (!q) return;
+  $('send').disabled = true; $('sendmsg').textContent = ' thinking…';
+  $('answer').style.display = 'none';
+  try {
+    const r = await fetch('/v1/chat/completions', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({model:'pluginfer-alpha',
+        messages:[{role:'user', content:q}], max_tokens:120})});
+    const d = await r.json();
+    const txt = (d.choices && d.choices[0] && d.choices[0].message.content)
+                || d.error || '(no answer)';
+    const signed = r.headers.get('X-Pluginfer-Receipt-Signed') === '1';
+    $('answer').textContent = txt; $('answer').style.display = 'block';
+    $('sendmsg').innerHTML = signed ? ' <span class="ok">signed receipt ✓</span>' : '';
+    refresh();
+  } catch (e) { $('sendmsg').textContent = ' network error'; }
+  $('send').disabled = false;
+};
+
+refresh();
+setInterval(refresh, 6000);
+</script>
+</body>
+</html>

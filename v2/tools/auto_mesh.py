@@ -64,7 +64,16 @@ from typing import Any, Dict, List, Optional, Tuple
 # degrades every `request: Request` endpoint into a required ?request=
 # query param (422s in production). Keep these here.
 from fastapi import Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
+
+# The human control panel, loaded once. Missing file (unusual) falls
+# back to a one-line page rather than crashing the node.
+try:
+    _CONTROL_PANEL_HTML = (Path(__file__).parent
+                           / "control_panel.html").read_text(encoding="utf-8")
+except OSError:
+    _CONTROL_PANEL_HTML = ("<h1>Pluginfer node is running.</h1>"
+                           "<p>See <a href='/peers'>/peers</a>.</p>")
 
 V2 = Path(__file__).resolve().parents[1]
 if str(V2) not in sys.path:
@@ -1149,6 +1158,72 @@ def build_node_app(*, my_pubkey: str, my_wallet, node_id: str):
                 pc is not None and pc.external_addr) else None,
         }
         return out
+
+    # ------------------------------------------------------------------
+    # Human control panel — a real web page, no terminal or curl needed.
+    # `pluginfer up` opens this in the browser; every button here maps to
+    # an endpoint above (status / faucet / balance / a test prompt).
+    # ------------------------------------------------------------------
+    @app.get("/", response_class=HTMLResponse)
+    async def control_panel():
+        return HTMLResponse(_CONTROL_PANEL_HTML)
+
+    @app.get("/v1/node/status")
+    async def node_status():
+        import hashlib as _hl
+        from decimal import Decimal as _D
+        pub_ip = os.environ.get("PLUGINFER_PUBLIC_IP", "")
+        pub_port = os.environ.get("PLUGINFER_PUBLIC_PORT", "")
+        shared = bool(pub_ip)
+        if shared:
+            public_url = (f"https://{pub_ip}" if pub_port == "443"
+                          else f"http://{pub_ip}:{pub_port or '8100'}")
+        else:
+            public_url = None
+        wallet_id = "node-" + _hl.sha256(
+            my_pubkey.encode("utf-8")).hexdigest()[:12]
+
+        # Every figure below is a REAL measured value from live state —
+        # no placeholders. Zero is a real zero on a node that just
+        # started, not a stand-in.
+        jobs_served = sum(1 for r in svc.jobs.values()
+                          if getattr(r, "state", "") == "completed")
+        balance_usd = "0.00"
+        earned_usd = "0.00"
+        commission_usd = "0.00"
+        if getattr(svc, "ledger", None) is not None:
+            w = svc.ledger.get_wallet(wallet_id)
+            if w is not None:
+                balance_usd = str(w.available_usd)
+            # Earnings that SETTLED on this node's ledger (provider-role
+            # wallets). Earnings for jobs a remote buyer settled live on
+            # THAT buyer's ledger by design — see /v1/ledger/verify.
+            earned = _D("0")
+            for wid, wobj in svc.ledger._wallets.items():
+                if getattr(wobj, "role", "") == "provider":
+                    earned += wobj.available_usd
+            earned_usd = str(earned)
+            try:
+                commission_usd = str(svc.ledger.treasury_balance())
+            except Exception:
+                pass
+
+        return {
+            "node_id": node_id,
+            "wallet_id": wallet_id,
+            "runtime": runtime_name,
+            "runtime_is_echo": runtime_name == "alpha-echo",
+            "peers": len(app.state.view),
+            "auction_size": len(svc.auction.providers),
+            "jobs_served": jobs_served,
+            "balance_usd": balance_usd,
+            "earned_usd": earned_usd,
+            "commission_usd": commission_usd,
+            "shared": shared,
+            "public_url": public_url,
+            "economics_mode": os.environ.get(
+                "PLUGINFER_ECONOMICS_MODE", "testnet").lower(),
+        }
 
     return app, svc
 

@@ -273,10 +273,27 @@ def main(argv: Optional[List[str]] = None) -> None:
     _say(f'      -d "{{\\"model\\": \\"{model_arg}\\", \\"messages\\": '
          f'[{{\\"role\\": \\"user\\", \\"content\\": \\"hello\\"}}]}}"')
     _say("")
+    _say(f"  Control panel (opens in your browser):  {base}/")
     _say("  Every response carries a signed receipt (X-Pluginfer-Receipt-ID).")
     _say("  Ctrl+C stops the node. Wallet + identity persist across runs.")
     _say("  " + "=" * 62)
     _say("")
+
+    # Open the control panel like a normal app would. A background timer
+    # gives the server a moment to bind first. Opt out with
+    # PLUGINFER_NO_BROWSER=1 (headless servers, CI).
+    if os.environ.get("PLUGINFER_NO_BROWSER", "0") != "1":
+        import threading
+        import webbrowser
+
+        def _open():
+            import time as _t
+            _t.sleep(3.5)
+            try:
+                webbrowser.open(f"{base}/")
+            except Exception:
+                pass
+        threading.Thread(target=_open, daemon=True).start()
 
     from tools import auto_mesh
     run_args = argparse.Namespace(
