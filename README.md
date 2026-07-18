@@ -61,14 +61,19 @@ already supports it. Your provider key stays server-side.
   extract) to your cheapest model and leaves hard ones alone; `=smart`
   also upgrades hard prompts (code/long-context) to your most capable
   model; or write full custom rules (`PLUGINFER_GW_ROUTES`) mapping any
-  envelope / prompt pattern / task / size to any model. Models can live
-  on **different providers** — give a price-sheet entry its own
-  `upstream` and `api_key_env` and that model's calls leave for its own
-  provider with its own key, so `gpt-4o`→OpenAI and `claude`→Anthropic
-  from a single endpoint. The classifier is transparent keyword
-  heuristics, not a hidden model, so every route is explainable on the
-  receipt. Upgrades that cost more are recorded as a **negative**
-  saving — never disguised as a win.
+  envelope / prompt pattern / task / size to any model. **Any number of
+  models**, and they can live on **different providers** — give a
+  price-sheet entry its own `upstream` and `api_key_env` and that
+  model's calls leave for its own provider with its own key, all from a
+  single endpoint. Works with any LLM reachable over an
+  **OpenAI-compatible chat API** — nearly the whole market (OpenAI,
+  Groq, Mistral, Together, DeepSeek, OpenRouter, local Ollama/vLLM, and
+  the OpenAI-compatible endpoints Anthropic and Google publish). A
+  provider you call through its *native* non-OpenAI format needs a
+  small adapter — we don't pretend otherwise. The classifier is
+  transparent keyword heuristics, not a hidden model, so every route is
+  explainable on the receipt; upgrades that cost more are recorded as a
+  **negative** saving, never disguised as a win.
 - **Signed, hash-chained receipts** — Ed25519 by default; each receipt
   embeds the previous one's hash and survives restarts. Any edit to
   history is caught at the exact receipt, verifiable by a third party
