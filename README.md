@@ -37,6 +37,21 @@ and get refused with HTTP 402, cache hits land at $0, and the signed
 receipt chain verify itself. Then hit `/demo/tamper` and watch the
 audit badge catch the edit.
 
+## Get it
+
+Every channel below is live and was verified by installing from it:
+
+| Channel | Command / link | What you get |
+|---|---|---|
+| **Installers** | [Latest release](https://github.com/pluginfer/pluginfer/releases/latest) — Windows `.exe`, macOS `.pkg`, Linux `.deb` | Full node: `pluginfer up`, browser control panel, gateway |
+| **Python SDK** | `pip install pluginfer` | Typed client for jobs, streaming, wallets |
+| **JS/TS SDK** | `npm install @pluginfer/sdk` | Same client for Node — ESM + CommonJS, typed |
+| **Docker** | `docker pull ghcr.io/pluginfer/pluginfer-devserver` | API + gateway server, one container |
+| | `docker pull ghcr.io/pluginfer/pluginfer-seed` | Bootstrap seed node for your own mesh |
+
+Releases ship an ECDSA-signed `manifest.json`; verify artifacts against
+[`v2/build/release_pubkey.pem`](v2/build/release_pubkey.pem).
+
 ## Everything it does — at a glance
 
 Full setup guides for each item: [docs/SETUP_GUIDES.md](docs/SETUP_GUIDES.md).
