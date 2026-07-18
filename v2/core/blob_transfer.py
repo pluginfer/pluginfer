@@ -254,6 +254,7 @@ class BlobReceiver:
 
     def __init__(self, channel: MeshChannel) -> None:
         self.channel = channel
+        self._bg_tasks: set = set()
         # blob_id -> _PendingRecv
         self._inflight: Dict[str, _PendingRecv] = {}
         # blob_id -> Future (resolved with assembled bytes or exception)
@@ -357,8 +358,10 @@ class BlobReceiver:
             hashes.append(h)
         root = _merkle_root(hashes)
         if root != rec.merkle_root:
-            asyncio.create_task(self._send_done(rec.blob_id, ok=False,
-                                                reason="merkle_mismatch"))
+            t = asyncio.create_task(self._send_done(rec.blob_id, ok=False,
+                                                    reason="merkle_mismatch"))
+            self._bg_tasks.add(t)
+            t.add_done_callback(self._bg_tasks.discard)
             if not rec.future.done():
                 rec.future.set_exception(BlobReceiveError(
                     f"Merkle root mismatch (got {root.hex()}, "
@@ -372,7 +375,9 @@ class BlobReceiver:
             # Trim if last chunk had padding (shouldn't happen with
             # our chunker, but be defensive).
             assembled = assembled[:rec.total_bytes]
-        asyncio.create_task(self._send_done(rec.blob_id, ok=True))
+        t = asyncio.create_task(self._send_done(rec.blob_id, ok=True))
+        self._bg_tasks.add(t)
+        t.add_done_callback(self._bg_tasks.discard)
         if not rec.future.done():
             rec.future.set_result(assembled)
         self._inflight.pop(rec.blob_id, None)
