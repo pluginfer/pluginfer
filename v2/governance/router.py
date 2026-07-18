@@ -1,11 +1,26 @@
-"""Model router — automatic best-model-per-task selection (Signet).
+"""Model router — task-aware model selection (Signet).
 
-Users plug in any number of models and either write RULES (first match
-wins) or lean on the built-in task classifier. The gateway then swaps
-the requested model before the call, and the receipt records the
-measured saving (requested-model price at the ACTUAL usage minus what
-was paid) — the same honest counterfactual math as the cascade, never
-a projection.
+Two honest modes; pick either or both:
+
+  * **Rules you write** (`PLUGINFER_GW_ROUTES`): a JSON list, first
+    match wins. Full control — route by envelope, prompt pattern, task
+    type, or size.
+  * **Auto-save** (`PLUGINFER_GW_AUTOROUTE=save`): zero config. The
+    gateway reads YOUR price sheet, finds your cheapest model, and
+    routes only the *simple* tasks (chat / summarize / extract) to it.
+    It NEVER downgrades code or long-context work — those stay on the
+    model you asked for. This is a cost optimizer you opt into, not a
+    "we magically pick the best model" oracle: it trades a little
+    quality on easy prompts for measured savings, and every swap is
+    visible.
+
+Important honesty note: the built-in classifier only *labels* a task
+(code / summarize / …). Labelling alone changes nothing — a label only
+routes when a rule (yours, or an auto-save rule) maps that label to a
+model. The gateway swaps the model before the call and the receipt
+records the measured saving (requested-model price at the ACTUAL usage
+minus what was paid) — a counterfactual from real numbers, never a
+projection.
 
 Rule schema (JSON list, evaluated in order; first match wins):
 
@@ -27,7 +42,35 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
-__all__ = ["ModelRouter", "classify_task"]
+__all__ = ["ModelRouter", "classify_task", "auto_save_rules"]
+
+# Tasks safe to serve on a cheaper model. Code and long-context are
+# deliberately EXCLUDED — auto-save never trades quality where it hurts.
+_AUTO_SAVE_TASKS = ("chat", "summarize", "extract")
+
+
+def auto_save_rules(price_sheet: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Synthesize routing rules from the operator's own price sheet:
+    send simple tasks to the cheapest model. Returns [] when there is
+    nothing to optimize (fewer than two priced models) — an honest
+    no-op rather than a fake route. The cheapest model is ranked by
+    input+output price per 1M tokens.
+    """
+    priced = []
+    for model, p in (price_sheet or {}).items():
+        try:
+            cost = float(p.get("input_per_1m", 0)) + \
+                float(p.get("output_per_1m", 0))
+        except (TypeError, ValueError):
+            continue
+        priced.append((cost, model))
+    if len(priced) < 2:
+        return []
+    priced.sort()
+    cheapest = priced[0][1]
+    return [{"id": f"auto-save-{task}",
+             "when": {"task": task}, "use": cheapest}
+            for task in _AUTO_SAVE_TASKS]
 
 _CODE = re.compile(r"(?i)\b(def |class |function|import |```|bug|stack"
                    r" ?trace|compile|refactor|unit test|regex|sql)\b")
