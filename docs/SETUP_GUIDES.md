@@ -262,3 +262,41 @@ The report gives agreement rate, **false accepts** (judge passed a bad
 answer — the dangerous direction) and false escalates (judge burned
 money on a good answer). Tune the threshold until false accepts are
 acceptable for YOUR traffic, then enable in production.
+
+## 17. Stake, slashing & reputation (provider economics)
+
+Quorum (K-of-N voting) makes a wrong answer detectable; staking makes
+it expensive. Providers bond funds from their own wallet:
+
+```sh
+curl -X POST http://127.0.0.1:8100/v1/stake \
+  -H "Content-Type: application/json" \
+  -d "{\"wallet_id\": \"my-wallet\", \"amount_usd\": \"5\"}"
+
+curl http://127.0.0.1:8100/v1/stake/my-wallet     # stake + reputation view
+```
+
+What the bond does: when a quorum majority is accepted, any provider
+that returned a DIFFERENT result is slashed (job price x
+PLUGINFER_SLASH_MULTIPLIER, capped at its bond) and the proceeds are
+split among the honest majority — verification pays. Nobody is ever
+slashed on a dispute (no majority = nobody proved wrong), and slash
+money never touches the treasury (commission-only, enforced by the
+public ledger audit). Every slash is public at
+`GET /v1/economics/slashes`.
+
+Getting your bond back has a delay (default 24 h) so a cheater can't
+withdraw ahead of the verdict:
+
+```sh
+curl -X POST .../v1/stake/unstake -d "{\"wallet_id\": \"my-wallet\", \"amount_usd\": \"5\"}"
+# ...after PLUGINFER_UNBONDING_S seconds:
+curl -X POST .../v1/stake/claim   -d "{\"wallet_id\": \"my-wallet\"}"
+```
+
+Reputation: repeated dissent quarantines a provider out of the auction
+(defaults: 3+ dissents at >34% of its recent window, 24 h cooldown) and
+raises its required stake. Operators can make a minimum bond mandatory
+for ALL bidding with `PLUGINFER_REQUIRE_STAKE=1` (off by default so
+solo/dev nodes keep working). Testnet economics apply: stakes are the
+same testnet-USD accruals as every other balance.

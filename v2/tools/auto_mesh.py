@@ -677,6 +677,30 @@ def build_node_app(*, my_pubkey: str, my_wallet, node_id: str):
         _pay_gateway = None
     payment_flows = PaymentFlows(svc.ledger, gateway=_pay_gateway,
                                  state_dir=_ledger_dir)
+    # HG21 — the economic layer: stake + slashing + reputation over
+    # quorum's dissent signal. Attached alongside the ledger; the
+    # auction consults it so un-bonded / quarantined providers never
+    # bid. Enforcement of a MINIMUM stake for bidding is opt-in
+    # (PLUGINFER_REQUIRE_STAKE=1) so existing single-node and dev
+    # meshes keep working; the reputation/quarantine gate is always on
+    # once a provider has a dissent history.
+    from core.economic_layer import EconomicLayer
+    svc.economics = EconomicLayer(svc.ledger, state_dir=_ledger_dir)
+    _require_stake = os.environ.get("PLUGINFER_REQUIRE_STAKE",
+                                    "0") == "1"
+
+    def _provider_eligible(pid: str):
+        econ = svc.economics
+        if _require_stake:
+            return econ.is_eligible(pid)
+        # Stake not required: only the quarantine (proven-dissent)
+        # gate applies.
+        rep = econ.reputation(pid)
+        if rep["quarantined"]:
+            return False, "quarantined (dissent history)"
+        return True, "ok"
+
+    svc.auction.eligibility_fn = _provider_eligible
 
     # Pick the best available runtime adapter. Falls back to honest
     # echo when no real backend is reachable — never mis-advertises.
@@ -957,6 +981,78 @@ def build_node_app(*, my_pubkey: str, my_wallet, node_id: str):
             "granted_usd": str(amount),
             "available_usd": str(w.available_usd),
         })
+
+    # HG21 — provider stake lifecycle. Stake moves a wallet's OWN funds
+    # between buckets (no cash enters or leaves), so it is gated like
+    # other money mutations (_money_denied) but not by _cash_denied.
+    @app.post("/v1/stake")
+    async def v1_stake(request: Request):
+        deny = _money_denied(request)
+        if deny is not None:
+            return deny
+        from decimal import Decimal as _D
+        from core.buyer_ledger import InsufficientFunds
+        try:
+            body = await request.json()
+            wallet_id = str(body["wallet_id"]).strip()
+            amount = _D(str(body["amount_usd"]))
+            w = svc.economics.stake(wallet_id, amount)
+        except InsufficientFunds as e:
+            return JSONResponse(status_code=402,
+                                content=_stamp_economics({"error": str(e)}))
+        except (KeyError, ValueError, ArithmeticError) as e:
+            return JSONResponse(status_code=400, content={"error": str(e)})
+        return _stamp_economics({
+            "wallet_id": wallet_id, "staked_usd": str(w.staked_usd),
+            "available_usd": str(w.available_usd),
+            "note": "staked funds are slashable while serving quorum "
+                    "jobs and return only through the unbonding delay"})
+
+    @app.post("/v1/stake/unstake")
+    async def v1_stake_unstake(request: Request):
+        deny = _money_denied(request)
+        if deny is not None:
+            return deny
+        from decimal import Decimal as _D
+        try:
+            body = await request.json()
+            wallet_id = str(body["wallet_id"]).strip()
+            amount = _D(str(body["amount_usd"]))
+            entry = svc.economics.request_unstake(wallet_id, amount)
+        except (KeyError, ValueError, ArithmeticError) as e:
+            return JSONResponse(status_code=400, content={"error": str(e)})
+        return _stamp_economics({
+            "wallet_id": wallet_id, "unbonding_usd": str(entry.amount_usd),
+            "mature_unix": entry.mature_unix,
+            "note": "funds stay staked (and slashable) until maturity; "
+                    "claim with POST /v1/stake/claim after that"})
+
+    @app.post("/v1/stake/claim")
+    async def v1_stake_claim(request: Request):
+        deny = _money_denied(request)
+        if deny is not None:
+            return deny
+        try:
+            body = await request.json()
+            wallet_id = str(body["wallet_id"]).strip()
+            if not wallet_id:
+                raise ValueError("wallet_id required")
+        except (KeyError, ValueError) as e:
+            return JSONResponse(status_code=400, content={"error": str(e)})
+        claimed = svc.economics.claim_unstaked(wallet_id)
+        return _stamp_economics({
+            "wallet_id": wallet_id, "claimed_usd": str(claimed)})
+
+    @app.get("/v1/stake/{wallet_id}")
+    async def v1_stake_status(wallet_id: str):
+        return _stamp_economics(svc.economics.reputation(wallet_id))
+
+    @app.get("/v1/economics/slashes")
+    async def v1_economics_slashes(limit: int = 50):
+        # Public like /v1/ledger/verify: slashing must be auditable by
+        # everyone it could ever apply to.
+        return _stamp_economics({
+            "slashes": svc.economics.slash_journal(limit)})
 
     @app.post("/v1/payments/deposit")
     async def v1_payments_deposit(request: Request):

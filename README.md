@@ -70,6 +70,7 @@ Full setup guides for each item: [docs/SETUP_GUIDES.md](docs/SETUP_GUIDES.md).
 | **Private enterprise mesh** | `--swarm-key` links your datacenters over the internet, authenticated, no VPN project |
 | **Sealed-bid auction** | Every job goes to the cheapest node meeting cost/latency/quality/privacy limits |
 | **Quorum verification** | K-of-N majority vote so one lying node can't corrupt a result |
+| **Stake & slashing** | Providers bond real ledger money; a dissenter proved wrong by the majority loses stake to the honest voters — cheating is unprofitable, not just detectable |
 | **Free testnet, no token ever** | Faucet grants starter credits; the ledger is plain USD and audits itself |
 | **Python & JS SDKs** | Typed clients for jobs, streaming, wallets — both entry points tested |
 | **Consortium jobs** | Too big for one node → split across the N best providers, each paid its share |
@@ -177,6 +178,18 @@ are proven, mitigated, or open.
 - **Quorum verification (K-of-N)** — run the same job on K independent
   nodes (default 3) and majority-vote the result, so one lying node
   can't corrupt the answer. The honest fix for untrusted compute.
+- **Stake & slashing — cheating is unprofitable, not just detectable** —
+  providers bond real ledger money (`POST /v1/stake`); a dissenter
+  proved wrong by an accepted quorum majority is slashed (job price ×
+  multiplier, capped at the bond) and the proceeds go to the honest
+  voters — never the treasury, which earns commission only, an
+  invariant `GET /v1/ledger/verify` enforces structurally. Unbonding
+  has a delay, so "cheat then withdraw the bond" can't work; repeat
+  dissenters pay rising stakes and get quarantined out of the auction.
+  Honest scope: nobody is slashed on a dispute (no majority = nobody
+  proved wrong), and a colluding majority remains quorum's documented
+  limit — the bond changes the economics of attempting it. Every slash
+  is public: `GET /v1/economics/slashes`.
 - **Free to try, no token, ever** — `POST /v1/testnet/faucet` grants a
   one-time starter balance; the ledger is plain USD, not a coin. No
   emissions, no presale, no "buy in to participate."

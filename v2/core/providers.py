@@ -88,7 +88,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from . import slack_auction
 
@@ -803,6 +803,10 @@ class Auction:
     full diagnostics so the broker can log losing bids for
     transparency / dispute audits."""
     providers: List[Provider] = field(default_factory=list)
+    # HG21: when an economic layer is attached, this returns
+    # (eligible, reason) per provider_id — un-bonded or quarantined
+    # providers never even get to bid. One gate, before any bid.
+    eligibility_fn: Optional[Callable[[str], Tuple[bool, str]]] = None
 
     def register(self, p: Provider) -> None:
         self.providers.append(p)
@@ -811,6 +815,16 @@ class Auction:
         bids: List[Bid] = []
         rejected: List[Dict[str, Any]] = []
         for p in self.providers:
+            if self.eligibility_fn is not None:
+                pid = getattr(p, "provider_id", "?")
+                try:
+                    ok, why = self.eligibility_fn(pid)
+                except Exception as e:
+                    ok, why = True, f"eligibility check errored: {e}"
+                if not ok:
+                    rejected.append({"provider_id": pid,
+                                     "reason": f"ineligible: {why}"})
+                    continue
             try:
                 b = p.bid(job)
             except Exception as e:

@@ -92,6 +92,10 @@ class BuyerWallet:
     role: str = "buyer"            # "buyer" | "provider" | "treasury"
     available_usd: Decimal = Decimal("0")
     locked_usd: Decimal = Decimal("0")
+    # HG21: provider bond. Staked funds are at risk of slashing while a
+    # provider serves quorum jobs; they move back to available only
+    # through the economic layer's unbonding delay.
+    staked_usd: Decimal = Decimal("0")
     entries: List[WalletEntry] = field(default_factory=list, repr=False)
 
     @property
@@ -104,6 +108,7 @@ class BuyerWallet:
             "role": self.role,
             "available_usd": str(self.available_usd),
             "locked_usd": str(self.locked_usd),
+            "staked_usd": str(self.staked_usd),
             "balance_usd": str(self.balance_usd),
             "entries_n": len(self.entries),
         }
@@ -192,6 +197,7 @@ class BuyerLedger:
                         "role": w.role,
                         "available_usd": str(w.available_usd),
                         "locked_usd": str(w.locked_usd),
+                        "staked_usd": str(w.staked_usd),
                         "entries": [
                             {"kind": e.kind, "amount_usd": str(e.amount_usd),
                              "timestamp_unix": e.timestamp_unix,
@@ -289,6 +295,7 @@ class BuyerLedger:
                     wallet_id=wid, role=wd.get("role", "buyer"),
                     available_usd=Decimal(wd["available_usd"]),
                     locked_usd=Decimal(wd["locked_usd"]),
+                    staked_usd=Decimal(wd.get("staked_usd", "0")),
                 )
                 w.entries = [
                     WalletEntry(
@@ -402,6 +409,95 @@ class BuyerLedger:
                 kind="debit", amount_usd=amount_usd,
                 timestamp_unix=time.time(), note=note,
             ))
+            self._save()
+            return w
+
+    # ------------------------------------------------------------------
+    # HG21 — provider stake (the economic layer's money legs)
+    # ------------------------------------------------------------------
+    def stake(self, wallet_id: str, amount_usd: Decimal,
+              *, note: str = "provider bond") -> BuyerWallet:
+        """Move available → staked. Staked funds are the provider's
+        skin in the game: slashable while serving, and only returnable
+        through the economic layer's unbonding delay."""
+        if amount_usd <= Decimal("0"):
+            raise ValueError("stake amount must be positive")
+        with self._lock:
+            w = self.get_or_create_wallet(wallet_id)
+            if w.available_usd < amount_usd:
+                raise InsufficientFunds(
+                    f"wallet {wallet_id} has {w.available_usd} USD "
+                    f"available, needs {amount_usd} to stake")
+            w.available_usd -= amount_usd
+            w.staked_usd += amount_usd
+            w.entries.append(WalletEntry(
+                kind="stake", amount_usd=amount_usd,
+                timestamp_unix=time.time(), note=note))
+            self._save()
+            return w
+
+    def unstake_release(self, wallet_id: str, amount_usd: Decimal,
+                        *, note: str = "unbonded") -> BuyerWallet:
+        """Move staked → available. ONLY the economic layer calls this,
+        after the unbonding delay has matured — the delay is what makes
+        'cheat then instantly withdraw the bond' impossible."""
+        if amount_usd <= Decimal("0"):
+            raise ValueError("unstake amount must be positive")
+        with self._lock:
+            w = self._wallets.get(wallet_id)
+            if w is None or w.staked_usd < amount_usd:
+                have = w.staked_usd if w else Decimal("0")
+                raise InsufficientFunds(
+                    f"wallet {wallet_id} has {have} USD staked, "
+                    f"cannot unstake {amount_usd}")
+            w.staked_usd -= amount_usd
+            w.available_usd += amount_usd
+            w.entries.append(WalletEntry(
+                kind="unstake", amount_usd=amount_usd,
+                timestamp_unix=time.time(), note=note))
+            self._save()
+            return w
+
+    def slash_stake(self, wallet_id: str, amount_usd: Decimal,
+                    *, job_id: str, note: str = "") -> Decimal:
+        """Destroy up to `amount_usd` of a provider's stake as a
+        penalty. Returns the amount ACTUALLY slashed (capped at the
+        stake — a bond can't go negative). The caller redistributes
+        the proceeds via `slash_award`; this leg only removes."""
+        if amount_usd <= Decimal("0"):
+            raise ValueError("slash amount must be positive")
+        with self._lock:
+            w = self._wallets.get(wallet_id)
+            if w is None or w.staked_usd <= Decimal("0"):
+                return Decimal("0")
+            taken = min(w.staked_usd, amount_usd)
+            w.staked_usd -= taken
+            w.entries.append(WalletEntry(
+                kind="slash_out", amount_usd=taken,
+                timestamp_unix=time.time(), job_id=job_id, note=note))
+            self._save()
+            return taken
+
+    def slash_award(self, wallet_id: str, amount_usd: Decimal,
+                    *, job_id: str, counterparty_id: Optional[str] = None,
+                    note: str = "") -> BuyerWallet:
+        """Credit slash proceeds to an honest party (majority provider
+        or wronged buyer). NEVER the treasury — the treasury earns
+        commission only; a treasury that profits from slashing has an
+        incentive to slash, and verify_balances enforces the ban."""
+        if wallet_id == TREASURY_WALLET_ID:
+            raise ValueError(
+                "slash proceeds can never go to the treasury — it "
+                "earns commission only")
+        if amount_usd <= Decimal("0"):
+            raise ValueError("slash award must be positive")
+        with self._lock:
+            w = self.get_or_create_wallet(wallet_id)
+            w.available_usd += amount_usd
+            w.entries.append(WalletEntry(
+                kind="slash_in", amount_usd=amount_usd,
+                timestamp_unix=time.time(), job_id=job_id,
+                counterparty_id=counterparty_id, note=note))
             self._save()
             return w
 
@@ -636,12 +732,18 @@ class BuyerLedger:
           refund            → available += amount, locked -= amount
           release           → available += amount   (provider earnings)
           commission        → available += amount   (treasury only)
+          stake             → available -= amount, staked += amount
+          unstake           → staked    -= amount, available += amount
+          slash_out         → staked    -= amount   (penalty destroyed)
+          slash_in          → available += amount   (proceeds; never
+                              treasury — enforced below)
         """
         mismatches = []
         with self._lock:
             for wid, w in self._wallets.items():
                 av = Decimal("0")
                 lk = Decimal("0")
+                st = Decimal("0")
                 for e in w.entries:
                     a = e.amount_usd
                     if e.kind == "credit":
@@ -657,16 +759,26 @@ class BuyerLedger:
                     elif e.kind == "refund":
                         av += a
                         lk -= a
-                    elif e.kind in ("release", "commission"):
+                    elif e.kind in ("release", "commission", "slash_in"):
                         av += a
+                    elif e.kind == "stake":
+                        av -= a
+                        st += a
+                    elif e.kind == "unstake":
+                        st -= a
+                        av += a
+                    elif e.kind == "slash_out":
+                        st -= a
                     else:
                         mismatches.append(
                             f"{wid}: unknown entry kind {e.kind!r}")
-                if av != w.available_usd or lk != w.locked_usd:
+                if (av != w.available_usd or lk != w.locked_usd
+                        or st != w.staked_usd):
                     mismatches.append(
                         f"{wid}: stored available={w.available_usd} "
-                        f"locked={w.locked_usd}, history says "
-                        f"available={av} locked={lk}")
+                        f"locked={w.locked_usd} staked={w.staked_usd}, "
+                        f"history says available={av} locked={lk} "
+                        f"staked={st}")
             treas = self._wallets.get(TREASURY_WALLET_ID)
             if treas is not None:
                 comm = sum((e.amount_usd for e in treas.entries
