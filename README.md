@@ -83,6 +83,28 @@ honest mitigation for untrusted compute. We publish
 [AUDIT.md](AUDIT.md) so nobody has to take our word for which claims
 are proven, mitigated, or open.
 
+**Mesh at a glance:**
+
+- **One command to join** — `pluginfer up` runs a node; add `--share`
+  and a free auto-tunnel makes it reachable worldwide with no router
+  config. Self-supervising: it never stays down.
+- **Sealed-bid auction routing** — each job goes to the cheapest node
+  that still meets your cost, latency, quality, and privacy limits;
+  your own machine wins when it's the best fit, so work only leaves
+  home when a peer is genuinely better.
+- **Quorum verification (K-of-N)** — run the same job on K independent
+  nodes (default 3) and majority-vote the result, so one lying node
+  can't corrupt the answer. The honest fix for untrusted compute.
+- **Free to try, no token, ever** — `POST /v1/testnet/faucet` grants a
+  one-time starter balance; the ledger is plain USD, not a coin. No
+  emissions, no presale, no "buy in to participate."
+- **A money ledger that audits itself** — every balance must equal its
+  signed entry history (`GET /v1/ledger/verify`, public); tampering or
+  deletion is detected and blocks payouts automatically.
+- **Signed receipts end to end** — every job and every settlement is
+  Ed25519-signed and independently verifiable, on both the gateway and
+  the mesh.
+
 **Two-strangers WAN run: cleared.** A GitHub-hosted runner (a machine
 on Microsoft's network) submitted a job to a node behind a home router
 NAT, over the open internet, with no shared network and no seed — the
