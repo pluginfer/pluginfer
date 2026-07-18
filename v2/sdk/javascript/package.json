@@ -1,27 +1,28 @@
 {
   "name": "@pluginfer/sdk",
   "version": "1.0.0",
-  "description": "JavaScript / TypeScript SDK for Pluginfer — distributed AI compute mesh.",
+  "description": "JavaScript / TypeScript SDK for Pluginfer \u2014 distributed AI compute mesh.",
   "license": "Apache-2.0",
   "type": "module",
-  "main": "./dist/index.cjs",
-  "module": "./dist/index.mjs",
+  "main": "./dist-cjs/index.js",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.mjs",
-      "require": "./dist/index.cjs"
+      "import": "./dist/index.js",
+      "require": "./dist-cjs/index.js"
     }
   },
   "files": [
     "dist",
+    "dist-cjs",
     "src",
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json",
-    "test": "node --test ./test"
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.cjs.json && node -e \"require('fs').writeFileSync('dist-cjs/package.json','{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "test": "node --test test/client.test.mjs"
   },
   "keywords": [
     "pluginfer",

@@ -139,6 +139,9 @@ are proven, mitigated, or open.
   revocation yet, and it requires TLS transport (`--share` tunnels are
   https; put a TLS-terminating proxy in front of a datacenter node).
 
+Per-feature setup guides — exact commands for everything below —
+live in [docs/SETUP_GUIDES.md](docs/SETUP_GUIDES.md).
+
 **Also inside — built and tested, less shouted about:**
 
 - **Python & JavaScript SDKs** (`v2/sdk/`) — submit jobs, stream, and

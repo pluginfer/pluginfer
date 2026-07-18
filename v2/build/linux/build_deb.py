@@ -35,8 +35,13 @@ V2_DIR = REPO_ROOT / "v2"
 # Allowlist of source dirs / files that go into the .deb. Anything not
 # listed here stays out (vendored packages, snapshots, build artefacts,
 # .docx whitepapers, .exe fixtures, etc.).
-SOURCE_DIRS = ("core", "ai", "infrastructure", "plugins", "ui", "utils")
+# tools/ (up + auto-mesh + control panel), api/ (jobs service, shim),
+# governance/ (Signet gateway), scripts/ (wan proof) are the ADVERTISED
+# product — the old allowlist shipped only the legacy standalone node.
+SOURCE_DIRS = ("core", "ai", "api", "governance", "tools", "scripts",
+               "infrastructure", "plugins", "ui", "utils")
 SOURCE_FILES = (
+    "pluginfer.py",
     "pluginfer_node.py",
     "requirements.txt",
     "requirements-prod.txt",
@@ -89,7 +94,14 @@ echo "preserved -- delete manually if you want a clean uninstall."
 
 LAUNCHER_SCRIPT = """\
 #!/bin/sh
-exec python3 /usr/lib/pluginfer/pluginfer_node.py "$@"
+# `pluginfer up` — the real product CLI (control panel, auto-mesh,
+# gateway). The legacy standalone node stays reachable as
+# `pluginfer legacy-node ...` for existing deployments.
+if [ "$1" = "legacy-node" ]; then
+    shift
+    exec python3 /usr/lib/pluginfer/pluginfer_node.py "$@"
+fi
+exec python3 /usr/lib/pluginfer/pluginfer.py "$@"
 """
 
 

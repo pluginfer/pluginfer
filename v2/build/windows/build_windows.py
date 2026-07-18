@@ -26,7 +26,11 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 V2_DIR = REPO_ROOT / "v2"
 WIN_DIR = V2_DIR / "build" / "windows"
-ENTRYPOINT = V2_DIR / "pluginfer_node.py"
+# The REAL product CLI ('pluginfer up' → control panel, auto-mesh,
+# gateway). The previous entrypoint (pluginfer_node.py) was the legacy
+# standalone node — installers were shipping a different product than
+# the README describes.
+ENTRYPOINT = V2_DIR / "pluginfer.py"
 
 
 def build_windows(*, version: str, git_sha: str, out_dir: Path) -> Path:
@@ -49,6 +53,20 @@ def _pyinstaller(out_dir: Path) -> None:
         "--distpath", str(out_dir),
         "--workpath", str(out_dir / "_pyinstaller_work"),
         "--specpath", str(out_dir / "_pyinstaller_spec"),
+        # The control panel is a DATA file next to tools/auto_mesh.py —
+        # PyInstaller only bundles imports, so without this the installed
+        # node serves the fallback page instead of the panel.
+        "--add-data",
+        f"{V2_DIR / 'tools' / 'control_panel.html'}{os.pathsep}tools",
+        # uvicorn resolves its event loop / protocol classes dynamically;
+        # the frozen build needs them named explicitly.
+        "--hidden-import", "uvicorn.logging",
+        "--hidden-import", "uvicorn.loops.auto",
+        "--hidden-import", "uvicorn.loops.asyncio",
+        "--hidden-import", "uvicorn.protocols.http.auto",
+        "--hidden-import", "uvicorn.protocols.http.h11_impl",
+        "--hidden-import", "uvicorn.protocols.websockets.auto",
+        "--hidden-import", "uvicorn.lifespan.on",
         str(ENTRYPOINT),
     ]
     subprocess.check_call(cmd, cwd=str(V2_DIR))

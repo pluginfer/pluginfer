@@ -1,5 +1,5 @@
-export { Pluginfer } from "./client";
-export type { PluginferOptions } from "./client";
+export { Pluginfer } from "./client.js";
+export type { PluginferOptions } from "./client.js";
 export type {
   Job,
   JobCreate,
@@ -9,10 +9,10 @@ export type {
   Provider,
   Status,
   WalletBalance,
-} from "./types";
+} from "./types.js";
 export {
   AuthenticationError,
   JobNotFoundError,
   PluginferError,
   RateLimitError,
-} from "./errors";
+} from "./errors.js";

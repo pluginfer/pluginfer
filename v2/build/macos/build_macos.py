@@ -22,7 +22,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[3]
 V2_DIR = REPO_ROOT / "v2"
 MAC_DIR = V2_DIR / "build" / "macos"
-ENTRYPOINT = V2_DIR / "pluginfer_node.py"
+# The REAL product CLI ('pluginfer up') — see build_windows.py for why
+# the legacy pluginfer_node.py entrypoint was wrong.
+ENTRYPOINT = V2_DIR / "pluginfer.py"
 
 
 def build_macos(*, version: str, git_sha: str, out_dir: Path) -> Path:
@@ -46,6 +48,17 @@ def _pyinstaller(out_dir: Path, version: str) -> Path:
         "--workpath", str(work),
         "--specpath", str(out_dir / "_pyinstaller_spec"),
         f"--osx-bundle-identifier=network.pluginfer.node",
+        # Same data + dynamic-import set as the Windows build — the
+        # control panel HTML and uvicorn's runtime-resolved classes.
+        "--add-data",
+        f"{V2_DIR / 'tools' / 'control_panel.html'}{os.pathsep}tools",
+        "--hidden-import", "uvicorn.logging",
+        "--hidden-import", "uvicorn.loops.auto",
+        "--hidden-import", "uvicorn.loops.asyncio",
+        "--hidden-import", "uvicorn.protocols.http.auto",
+        "--hidden-import", "uvicorn.protocols.http.h11_impl",
+        "--hidden-import", "uvicorn.protocols.websockets.auto",
+        "--hidden-import", "uvicorn.lifespan.on",
         str(ENTRYPOINT),
     ]
     subprocess.check_call(cmd, cwd=str(V2_DIR))

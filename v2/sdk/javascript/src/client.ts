@@ -5,13 +5,13 @@ import {
   Provider,
   Status,
   WalletBalance,
-} from "./types";
+} from "./types.js";
 import {
   AuthenticationError,
   JobNotFoundError,
   PluginferError,
   RateLimitError,
-} from "./errors";
+} from "./errors.js";
 
 export interface PluginferOptions {
   apiKey?: string;
