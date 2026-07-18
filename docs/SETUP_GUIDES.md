@@ -228,3 +228,37 @@ a fresh proof is *pending* until the calendars batch into Bitcoin;
 anchoring is fail-open (calendar outages are journaled, spend
 enforcement is never blocked); only the 32-byte head leaves your
 network — no spend data. Airgapped? Leave it off; nothing changes.
+
+## 16. Judge-gated cascade (widen safe savings)
+
+The cascade (guide 4) accepts a cheap model answer only when no hard
+failure signal fires. A judge model adds a substance check on top:
+
+```sh
+set PLUGINFER_GW_CASCADES=C:\path\to\cascades.json
+set PLUGINFER_GW_CASCADE_JUDGE=gpt-4o-mini      # must be in your price sheet
+set PLUGINFER_GW_CASCADE_JUDGE_THRESHOLD=7      # accept at score >= 7 (0-10)
+set PLUGINFER_GW_CASCADE_JUDGE_ON_ERROR=escalate  # judge down -> escalate (default)
+python -m governance.gateway
+```
+
+Flow per request: cheap model answers → hard signals check → judge
+scores the answer against the request → accept (settle at cheap +
+judge price; saving recorded signed) or escalate to the target model
+(cheap + judge cost surfaced as negative saving). The judge's verdict
+rides on every receipt.
+
+**Measure before you trust it.** A judge is a model judging a model.
+Curate a golden set of real prompts + answers you've labelled, then:
+
+```sh
+curl -X POST http://127.0.0.1:8788/v1/cascade/judge/golden \
+  -H "X-Admin-Key: <admin>" -H "Content-Type: application/json" \
+  -d "{\"items\": [{\"prompt\": \"2+2?\", \"answer\": \"4\", \"label\": \"accept\"},
+                   {\"prompt\": \"2+2?\", \"answer\": \"5\", \"label\": \"escalate\"}]}"
+```
+
+The report gives agreement rate, **false accepts** (judge passed a bad
+answer — the dangerous direction) and false escalates (judge burned
+money on a good answer). Tune the threshold until false accepts are
+acceptable for YOUR traffic, then enable in production.

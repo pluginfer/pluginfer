@@ -291,6 +291,8 @@ class GovernanceGateway:
         compressor: Optional[Any] = None,       # token_thrift.PromptCompressor
         # {"expensive-model": "cheaper-model"} — opt-in per model.
         cascades: Optional[Dict[str, str]] = None,
+        # HG13g — optional judge model gating cascade acceptance.
+        cascade_judge: Optional[Any] = None,    # governance.judge.CascadeJudge
         # governance.router.ModelRouter — rule-driven model selection.
         router: Optional[Any] = None,
         # Extra upstream bases callable via X-Pluginfer-Upstream.
@@ -353,6 +355,16 @@ class GovernanceGateway:
         self.semantic_cache = semantic_cache
         self.compressor = compressor
         self.cascades = dict(cascades or {})
+        # HG13g: the judge's spend must be priceable or the savings
+        # arithmetic would be fiction — config must mean what it says,
+        # so a judge outside the price sheet fails construction.
+        self.cascade_judge = cascade_judge
+        if cascade_judge is not None and \
+                (self.price_sheet.get(cascade_judge.model)
+                 or self.price_sheet.get("*")) is None:
+            raise ValueError(
+                f"cascade judge model {cascade_judge.model!r} is not in "
+                f"the price sheet — add it (its calls are real spend)")
         self.router = router
         self.timeout_s = timeout_s
         # Estimated (not measured) savings live in their OWN bucket so
@@ -706,6 +718,40 @@ class GovernanceGateway:
         except (json.JSONDecodeError, UnicodeDecodeError):
             return status, resp_bytes, None
 
+    # -- HG13g: judge transport -----------------------------------------
+
+    def _judge_post_fn(self):
+        """A post_fn for CascadeJudge: routes the judge call to the
+        judge model's OWN provider (per-model upstream + key when
+        configured, default upstream otherwise)."""
+        judge = self.cascade_judge
+        base, key = self._upstream_for_model(judge.model)
+        headers = {"Content-Type": "application/json"}
+        if key:
+            headers["Authorization"] = f"Bearer {key}"
+            headers["X-Api-Key"] = key
+
+        def post_fn(jbody):
+            st, _raw, js = self._post_upstream(
+                "/v1/chat/completions", jbody, headers, base)
+            return st, js
+        return post_fn
+
+    def _judge_cheap_answer(self, body: Dict[str, Any],
+                            cheap_resp: Dict[str, Any]):
+        """Run the configured judge over a cheap-model answer. Returns
+        (verdict, judge_cost_usd) — the judge's own spend, priced from
+        its usage block, is REAL money the caller must account for."""
+        verdict = self.cascade_judge.judge(
+            body, _extract_text(cheap_resp), self._judge_post_fn())
+        cost = 0.0
+        if (verdict.input_tokens is not None
+                and verdict.output_tokens is not None):
+            cost = self._cost_usd(self.cascade_judge.model,
+                                  int(verdict.input_tokens),
+                                  int(verdict.output_tokens)) or 0.0
+        return verdict, cost
+
     def _resolve_upstream(self, request: FastApiRequest
                           ) -> Tuple[str, Optional[JSONResponse]]:
         """Per-call upstream selection via X-Pluginfer-Upstream,
@@ -897,45 +943,76 @@ class GovernanceGateway:
                 cheap_actual = (
                     self._cost_usd(cheap_model, ri, ro)
                     if ri is not None and ro is not None else None)
+                # HG13g: hard signals passed → the configured judge gets
+                # the second word. Its verdict can only NARROW acceptance
+                # (a judge never overrides a hard failure signal), and
+                # its own call cost is metered into whichever outcome
+                # follows.
+                judge_cost = 0.0
+                judge_fields: Optional[Dict[str, Any]] = None
+                if (ok and cheap_actual is not None
+                        and self.cascade_judge is not None):
+                    verdict, judge_cost = await \
+                        asyncio.get_running_loop().run_in_executor(
+                            None, self._judge_cheap_answer, body,
+                            resp_json)
+                    judge_fields = verdict.receipt_fields()
+                    judge_fields["model"] = self.cascade_judge.model
+                    judge_fields["cost_usd"] = round(judge_cost, 8)
+                    if not verdict.accept:
+                        ok = False
+                        why = (verdict.error or
+                               f"judge_rejected(score={verdict.score})")
                 if ok and cheap_actual is not None:
-                    # Accepted: settle at the CHEAP price; saving is
-                    # the target-model price at the SAME measured usage.
+                    # Accepted: settle at cheap + judge price; saving is
+                    # the target-model price at the SAME measured usage,
+                    # minus BOTH real costs — signed, never clamped, so
+                    # a judge that eats the margin shows honestly.
+                    total_cost = cheap_actual + judge_cost
                     target_cost = self._cost_usd(model, ri, ro) or 0.0
-                    saved = max(0.0, target_cost - cheap_actual)
-                    self.budget.settle(call_id, cheap_actual,
+                    saved = (target_cost - total_cost if judge_fields
+                             else max(0.0, target_cost - cheap_actual))
+                    self.budget.settle(call_id, total_cost,
                                        meta={"model": cheap_model,
                                              "cascade": "accepted"})
                     self.cache.put(body, resp_json, cheap_actual)
                     if self.semantic_cache is not None:
                         self.semantic_cache.put(body, resp_json,
                                                 cheap_actual)
-                    receipt = self._emit_receipt({
+                    rec_body = {
                         "kind": "cascade_accept", "envelope": envelope,
                         "key_fingerprint": key_fp,
                         "model": cheap_model,
                         "requested_model": model,
-                        "cost_usd": round(cheap_actual, 8),
+                        "cost_usd": round(total_cost, 8),
                         "saved_usd": round(saved, 8),
                         "input_tokens": ri, "output_tokens": ro,
                         "response_sha256": hashlib.sha256(
                             resp_bytes).hexdigest(),
-                    })
+                    }
+                    if judge_fields:
+                        rec_body["judge"] = judge_fields
+                    receipt = self._emit_receipt(rec_body)
                     return JSONResponse(
                         status_code=200, content=resp_json, headers={
-                            "X-Pluginfer-Cost-USD": f"{cheap_actual:.8f}",
+                            "X-Pluginfer-Cost-USD": f"{total_cost:.8f}",
                             "X-Pluginfer-Cascade":
-                                f"accepted:{cheap_model}",
+                                ("accepted+judged:" if judge_fields
+                                 else "accepted:") + cheap_model,
                             "X-Pluginfer-Saved-USD": f"{saved:.8f}",
                             "X-Pluginfer-Envelope": envelope,
                             "X-Pluginfer-Receipt-Id":
                                 receipt["receipt_id"],
                         })
-                # Escalating: the cheap attempt's cost is REAL spend —
-                # tracked and later surfaced as negative saving.
-                cheap_cost = cheap_actual or 0.0
+                # Escalating: the cheap attempt's cost — AND the judge's,
+                # when one ran — is REAL spend, tracked and later
+                # surfaced as negative saving.
+                cheap_cost = (cheap_actual or 0.0) + judge_cost
                 cascade_info = {"tried": cheap_model,
                                 "escalated_because": why
                                 if status == 200 else "cheap_error"}
+                if judge_fields:
+                    cascade_info["judge"] = judge_fields
             else:
                 cascade_info = {"tried": cheap_model,
                                 "escalated_because": "cheap_error"}
@@ -1173,6 +1250,7 @@ def build_governance_gateway(
     semantic_cache: Optional[Any] = None,
     compressor: Optional[Any] = None,
     cascades: Optional[Dict[str, str]] = None,
+    cascade_judge: Optional[Any] = None,
     router: Optional[Any] = None,
     upstream_allowlist: Optional[List[str]] = None,
     timeout_s: float = 120.0,
@@ -1185,7 +1263,7 @@ def build_governance_gateway(
         admin_key=admin_key, auth=auth, wallet=wallet, signer=signer,
         http_post=http_post, http_stream=http_stream, cache=cache,
         semantic_cache=semantic_cache, compressor=compressor,
-        cascades=cascades, router=router,
+        cascades=cascades, cascade_judge=cascade_judge, router=router,
         upstream_allowlist=upstream_allowlist, timeout_s=timeout_s,
     )
     app = FastAPI(title="Pluginfer Signet — AI Spend Gateway")
@@ -1241,6 +1319,8 @@ def build_governance_gateway(
         return {"status": "ok", "upstream": gw.upstream_base,
                 "models_priced": sorted(gw.price_sheet),
                 "cascades": gw.cascades,
+                "cascade_judge": (gw.cascade_judge.model
+                                  if gw.cascade_judge else None),
                 "cache_ttl_s": gw.cache.ttl_s,
                 "auth_enforced": gw.auth.enforced,
                 "signing": getattr(gw.signer, "algorithm", None)}
@@ -1426,6 +1506,46 @@ chain head via <code>/v1/receipts/verify</code>.</p>
             headers={"Content-Disposition":
                      f'attachment; filename="{path.name}"'})
 
+    @app.post("/v1/cascade/judge/golden")
+    async def cascade_judge_golden(request: FastApiRequest):
+        """HG13g: measure the judge against an operator-curated golden
+        set BEFORE trusting it with traffic. Admin-gated — every item
+        is a real judge-model call (real spend)."""
+        deny = _need_admin(request)
+        if deny is not None:
+            return deny
+        if gw.cascade_judge is None:
+            return JSONResponse(status_code=400, content={
+                "error": "no cascade judge configured — set "
+                         "PLUGINFER_GW_CASCADE_JUDGE (or pass "
+                         "cascade_judge= to build_governance_gateway)"})
+        try:
+            payload = json.loads(await request.body() or b"{}")
+        except json.JSONDecodeError:
+            return JSONResponse(status_code=400, content={
+                "error": "request body is not valid JSON"})
+        items = payload.get("items")
+        if not isinstance(items, list) or not items:
+            return JSONResponse(status_code=400, content={
+                "error": "body must be {\"items\": [{\"prompt\", "
+                         "\"answer\", \"label\": \"accept\"|"
+                         "\"escalate\"}, ...]}"})
+        if len(items) > 200:
+            return JSONResponse(status_code=400, content={
+                "error": "at most 200 golden items per run — each one "
+                         "is a paid judge call"})
+        import asyncio
+        try:
+            report = await asyncio.to_thread(
+                gw.cascade_judge.evaluate_golden, items,
+                gw._judge_post_fn())
+        except ValueError as e:
+            return JSONResponse(status_code=400,
+                                content={"error": str(e)})
+        report["judge_model"] = gw.cascade_judge.model
+        report["threshold"] = gw.cascade_judge.threshold
+        return report
+
     @app.get("/v1/spend/by_key")
     async def spend_by_key(request: FastApiRequest):
         deny = _need_reader(request)
@@ -1528,7 +1648,10 @@ def main() -> int:
     _COMPRESS_MAX_INPUT_TOKENS=N,
     PLUGINFER_GW_ANCHOR=ots (publish the receipt-chain head to public
     OpenTimestamps calendars; + _ANCHOR_INTERVAL_S default 3600,
-    _ANCHOR_CALENDARS comma-separated override).
+    _ANCHOR_CALENDARS comma-separated override),
+    PLUGINFER_GW_CASCADE_JUDGE=<model> (judge model gating cascade
+    acceptance; must be in the price sheet; + _THRESHOLD default 7,
+    _ON_ERROR escalate|accept default escalate).
     """
     # host_guard is optional — the standalone install may not ship it.
     try:
@@ -1552,6 +1675,16 @@ def main() -> int:
     if cascades_path:
         with open(cascades_path, encoding="utf-8") as f:
             cascades = json.load(f)
+    cascade_judge = None
+    _judge_model = os.environ.get("PLUGINFER_GW_CASCADE_JUDGE", "")
+    if _judge_model:
+        from governance.judge import CascadeJudge
+        cascade_judge = CascadeJudge(
+            _judge_model,
+            threshold=float(os.environ.get(
+                "PLUGINFER_GW_CASCADE_JUDGE_THRESHOLD", "7")),
+            on_error=os.environ.get(
+                "PLUGINFER_GW_CASCADE_JUDGE_ON_ERROR", "escalate"))
     router = None
     routes_path = os.environ.get("PLUGINFER_GW_ROUTES", "")
     if routes_path:
@@ -1648,7 +1781,7 @@ def main() -> int:
             cache_all=os.environ.get("PLUGINFER_GW_CACHE_ALL",
                                      "0") == "1"),
         semantic_cache=semantic_cache, compressor=compressor,
-        cascades=cascades, router=router,
+        cascades=cascades, cascade_judge=cascade_judge, router=router,
         upstream_allowlist=[u for u in os.environ.get(
             "PLUGINFER_GW_UPSTREAMS", "").split(",") if u.strip()],
         anchoring=anchoring, anchor_interval_s=anchor_interval_s,

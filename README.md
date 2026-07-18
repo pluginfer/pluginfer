@@ -61,6 +61,7 @@ Full setup guides for each item: [docs/SETUP_GUIDES.md](docs/SETUP_GUIDES.md).
 | **Fail-closed budget caps** | Overruns are refused with HTTP 402 *before* money leaves — structurally impossible, not an alert |
 | **Signed, hash-chained receipts** | Ed25519 audit chain; any edit is caught at the exact receipt, third-party verifiable |
 | **Bitcoin-anchored audit trail** | Opt-in: chain head published to OpenTimestamps → committed into Bitcoin; even the operator can't rewrite history |
+| **Judge-gated cascade** | Opt-in: a cheap judge model scores cascade answers before acceptance; measured on your golden set first |
 | **Multi-LLM routing** | Any number of models on different providers behind one endpoint; `save`/`smart` auto-modes or full custom rules |
 | **Measured savings** | Exact + semantic cache, cascade, compression — counterfactuals from real bills, never projections |
 | **Spend attribution** | By envelope, model, and API-key fingerprint — internal chargeback from signed data |
@@ -94,6 +95,17 @@ already supports it. Your provider key stays server-side.
   upstream *actually billed* last time), opt-in cheap-model cascade
   with a conservative scorer, opt-in prompt compression. Escalation
   overhead is shown in red, subtracted from net — never hidden.
+- **Judge-gated cascade (opt-in)** — the conservative cascade only
+  catches hard failures (empty/truncated/refusal). Configure a cheap
+  judge model (`PLUGINFER_GW_CASCADE_JUDGE`) and it scores every
+  cheap answer against the request before acceptance — widening how
+  much traffic you can *safely* cascade. Honest metering: the judge's
+  own calls are real spend, subtracted from the recorded saving
+  (signed — a judge that eats the margin shows as negative), and its
+  verdict is on every receipt. Before trusting it, measure it:
+  `POST /v1/cascade/judge/golden` runs the judge over your own
+  labelled golden set and reports agreement and false-accept rates —
+  a judge is a model judging a model, not ground truth, and we say so.
 - **One gateway, many LLMs — automatic model selection.** Plug in any
   number of models (one is fine too) and let the router do the picking
   that used to be a manual, per-request judgment call:
