@@ -373,6 +373,9 @@ class GovernanceGateway:
         # deployment choice we document rather than assume. NOT called a
         # blockchain: one gateway is one writer, there is no consensus.
         self._chain_head = "0" * 64
+        # HG13j: set by build_governance_gateway when external anchoring
+        # is enabled (AnchorManager); None = heads are not published.
+        self.anchoring: Optional[Any] = None
         # The chain SURVIVES restarts: reload every persisted receipt so
         # verify_chain() covers the full history (not just this process)
         # and new receipts link onto the real head instead of restarting
@@ -1173,6 +1176,8 @@ def build_governance_gateway(
     router: Optional[Any] = None,
     upstream_allowlist: Optional[List[str]] = None,
     timeout_s: float = 120.0,
+    anchoring: Optional[Any] = None,
+    anchor_interval_s: float = 3600.0,
 ) -> FastAPI:
     gw = GovernanceGateway(
         budget=budget, upstream_base=upstream_base,
@@ -1185,6 +1190,28 @@ def build_governance_gateway(
     )
     app = FastAPI(title="Pluginfer Signet — AI Spend Gateway")
     app.state.gateway = gw
+
+    # HG13j external anchoring (opt-in): an AnchorManager publishes the
+    # chain head to public OpenTimestamps calendars so the operator can
+    # no longer rewrite history without contradicting an already-public
+    # proof. The manager signs its records with the gateway's own signer
+    # unless it was given one. interval_s <= 0 = manual-only (the
+    # /v1/audit/anchor/now endpoint still works).
+    gw.anchoring = anchoring
+    if anchoring is not None and getattr(anchoring, "signer", None) is None:
+        anchoring.signer = gw.signer
+    app.state.anchor_scheduler = None
+    if anchoring is not None and anchor_interval_s > 0:
+        from governance.anchoring import AnchorScheduler
+
+        def _head_and_count():
+            with gw._receipts_lock:
+                return gw._chain_head, len(gw._receipts)
+
+        sched = AnchorScheduler(anchoring, _head_and_count,
+                                interval_s=anchor_interval_s)
+        sched.start()
+        app.state.anchor_scheduler = sched
 
     from governance.auth import bearer
 
@@ -1335,15 +1362,69 @@ chain head via <code>/v1/receipts/verify</code>.</p>
             head = gw._chain_head
             count = len(gw._receipts)
         sig = gw.signer.sign(head) if gw.signer is not None else None
+        anchoring_status: Dict[str, Any] = {"enabled": gw.anchoring
+                                            is not None}
+        if gw.anchoring is not None:
+            sched = app.state.anchor_scheduler
+            anchoring_status.update({
+                "method": "opentimestamps",
+                "calendars": gw.anchoring.calendars,
+                "interval_s": getattr(sched, "interval_s", None),
+                "last_success": gw.anchoring.last_success(),
+            })
         return {"chain_head_sha256": head, "receipt_count": count,
                 "signature": sig,
                 "algorithm": getattr(gw.signer, "algorithm", None),
                 "public_key_pem": getattr(gw.signer, "public_key_pem",
                                           None),
+                "external_anchoring": anchoring_status,
                 "how_to_use": "publish this record to an append-only "
                               "external store on a schedule; auditors "
                               "verify each receipt with public_key_pem "
                               "and confirm the head matches."}
+
+    @app.post("/v1/audit/anchor/now")
+    async def audit_anchor_now(request: FastApiRequest):
+        # Admin-gated: it spends network egress and grows the journal.
+        deny = _need_admin(request)
+        if deny is not None:
+            return deny
+        if gw.anchoring is None:
+            return JSONResponse(status_code=400, content={
+                "error": "external anchoring is not enabled — set "
+                         "PLUGINFER_GW_ANCHOR=ots (or pass anchoring= "
+                         "to build_governance_gateway)"})
+        with gw._receipts_lock:
+            head = gw._chain_head
+            count = len(gw._receipts)
+        import asyncio
+        rec = await asyncio.to_thread(gw.anchoring.anchor, head, count)
+        return rec
+
+    @app.get("/v1/audit/anchors")
+    async def audit_anchors(limit: int = 50):
+        # Public by design, like /v1/receipts/verify: anchor records
+        # carry integrity data only — no spend figures.
+        if gw.anchoring is None:
+            return {"enabled": False, "anchors": []}
+        return {"enabled": True,
+                "anchors": gw.anchoring.records(limit)}
+
+    @app.get("/v1/audit/anchors/{anchor_id}/proof/{index}")
+    async def audit_anchor_proof(anchor_id: str, index: int):
+        # The filename is resolved from OUR journal record, never from
+        # caller input — no path traversal surface.
+        from fastapi.responses import Response
+        path = (gw.anchoring.find_proof(anchor_id, index)
+                if gw.anchoring is not None else None)
+        if path is None:
+            return JSONResponse(status_code=404, content={
+                "error": "no such anchor proof"})
+        return Response(
+            content=path.read_bytes(),
+            media_type="application/vnd.opentimestamps.v1",
+            headers={"Content-Disposition":
+                     f'attachment; filename="{path.name}"'})
 
     @app.get("/v1/spend/by_key")
     async def spend_by_key(request: FastApiRequest):
@@ -1444,7 +1525,10 @@ def main() -> int:
     PLUGINFER_GW_CASCADES (path to {"expensive": "cheap"} JSON),
     PLUGINFER_GW_SEMANTIC=1 (+ _SEMANTIC_THRESHOLD, default 0.97),
     PLUGINFER_GW_COMPRESS_DEDUP=1 / _COMPRESS_WS=1 /
-    _COMPRESS_MAX_INPUT_TOKENS=N.
+    _COMPRESS_MAX_INPUT_TOKENS=N,
+    PLUGINFER_GW_ANCHOR=ots (publish the receipt-chain head to public
+    OpenTimestamps calendars; + _ANCHOR_INTERVAL_S default 3600,
+    _ANCHOR_CALENDARS comma-separated override).
     """
     # host_guard is optional — the standalone install may not ship it.
     try:
@@ -1543,6 +1627,17 @@ def main() -> int:
               "127.0.0.1. This protects your upstream API key from "
               "anyone who can reach the port.")
         return 3
+    anchoring = None
+    anchor_interval_s = 3600.0
+    if os.environ.get("PLUGINFER_GW_ANCHOR", "").lower() == "ots":
+        from governance.anchoring import AnchorManager
+        _cals = [c for c in os.environ.get(
+            "PLUGINFER_GW_ANCHOR_CALENDARS", "").split(",") if c.strip()]
+        anchoring = AnchorManager(
+            getattr(budget, "_state_dir", None),
+            calendars=_cals or None)
+        anchor_interval_s = float(os.environ.get(
+            "PLUGINFER_GW_ANCHOR_INTERVAL_S", "3600"))
     app = build_governance_gateway(
         budget=budget, upstream_base=upstream, price_sheet=price_sheet,
         upstream_api_key=os.environ.get("PLUGINFER_GW_KEY") or None,
@@ -1556,6 +1651,7 @@ def main() -> int:
         cascades=cascades, router=router,
         upstream_allowlist=[u for u in os.environ.get(
             "PLUGINFER_GW_UPSTREAMS", "").split(",") if u.strip()],
+        anchoring=anchoring, anchor_interval_s=anchor_interval_s,
     )
     import uvicorn
     from governance import BANNER

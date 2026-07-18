@@ -60,6 +60,7 @@ Full setup guides for each item: [docs/SETUP_GUIDES.md](docs/SETUP_GUIDES.md).
 |---|---|
 | **Fail-closed budget caps** | Overruns are refused with HTTP 402 *before* money leaves — structurally impossible, not an alert |
 | **Signed, hash-chained receipts** | Ed25519 audit chain; any edit is caught at the exact receipt, third-party verifiable |
+| **Bitcoin-anchored audit trail** | Opt-in: chain head published to OpenTimestamps → committed into Bitcoin; even the operator can't rewrite history |
 | **Multi-LLM routing** | Any number of models on different providers behind one endpoint; `save`/`smart` auto-modes or full custom rules |
 | **Measured savings** | Exact + semantic cache, cascade, compression — counterfactuals from real bills, never projections |
 | **Spend attribution** | By envelope, model, and API-key fingerprint — internal chargeback from signed data |
@@ -116,9 +117,19 @@ already supports it. Your provider key stays server-side.
 - **Signed, hash-chained receipts** — Ed25519 by default; each receipt
   embeds the previous one's hash and survives restarts. Any edit to
   history is caught at the exact receipt, verifiable by a third party
-  with the public key alone (`/v1/receipts/verify`, `/v1/audit/anchor`
-  for external anchoring). We deliberately do **not** call this a
-  blockchain — one gateway is one writer.
+  with the public key alone (`/v1/receipts/verify`). We deliberately do
+  **not** call this a blockchain — one gateway is one writer.
+- **Bitcoin-anchored audit trail (opt-in)** — signatures stop outsiders,
+  but the *operator* holds the signing key. `PLUGINFER_GW_ANCHOR=ots`
+  closes that: the chain head is published on a schedule to public
+  OpenTimestamps calendars, which commit it into Bitcoin — after that,
+  rewriting history means contradicting a proof the world already has.
+  Standard `.ots` files, downloadable per anchor
+  (`/v1/audit/anchors`), verifiable with the independent
+  `opentimestamps-client` — no trust in this gateway required. Honest
+  scope: a fresh proof is *pending* until calendars batch into Bitcoin
+  (hours); anchoring is fail-open (a calendar outage never blocks
+  spend enforcement) and sends only the 32-byte head, no spend data.
 - **Attribution** — spend by envelope, by model, and by API-key
   fingerprint (raw keys never stored). "The $455M went *where*?"
   becomes a query.

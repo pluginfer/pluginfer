@@ -191,3 +191,40 @@ python pluginfer.py up --share          # note the https tunnel host
 
 A GitHub runner becomes a buyer-only stranger and clears a signed job
 on your machine across the open internet.
+
+## 15. Bitcoin-anchor the Signet audit trail (opt-in)
+
+Signatures prove outsiders didn't edit the receipt log — but the
+gateway operator holds the signing key. Anchoring closes that last gap
+by publishing the chain head where even the operator can't unpublish
+it:
+
+```sh
+set PLUGINFER_GW_ANCHOR=ots           # that's the whole setup
+python -m governance.gateway
+```
+
+Every hour (tune with `PLUGINFER_GW_ANCHOR_INTERVAL_S`), if the chain
+head moved, it is submitted to public OpenTimestamps calendar servers,
+which batch it into a Bitcoin transaction. Anchor on demand with
+`POST /v1/audit/anchor/now` (admin key). List anchors and download the
+standard `.ots` proof files:
+
+```sh
+curl http://127.0.0.1:8788/v1/audit/anchors
+curl -O http://127.0.0.1:8788/v1/audit/anchors/<anchor_id>/proof/0
+```
+
+Verify as a third party, with zero trust in the gateway:
+
+```sh
+pip install opentimestamps-client
+ots upgrade proof.ots          # completes once Bitcoin-attested (~hours)
+ots verify -d <chain_head_sha256> proof.ots
+```
+
+then confirm the same head at `GET /v1/receipts/verify`. Honest scope:
+a fresh proof is *pending* until the calendars batch into Bitcoin;
+anchoring is fail-open (calendar outages are journaled, spend
+enforcement is never blocked); only the 32-byte head leaves your
+network — no spend data. Airgapped? Leave it off; nothing changes.
