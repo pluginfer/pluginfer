@@ -17,9 +17,13 @@ Two products live here:
    redefinition; it is a competent, honestly-instrumented entrant with
    one differentiator worth pursuing (provable, billable savings).
 2. **Compute mesh** (`core/`, `tools/`) — a decentralized marketplace
-   for AI compute. **Ambitious, coherent, and unproven in the wild.**
-   Its hardest problem (trusting an anonymous node's output) is
-   mitigated, not solved. It has never run across a real WAN.
+   for AI compute. **Ambitious and coherent; now proven across a real
+   WAN, but not yet at scale.** Its hardest problem (trusting an
+   anonymous node's output) is mitigated, not solved. A cross-internet
+   two-node run has cleared (a home node behind NAT served a signed job
+   submitted by a cloud runner — public `wan-proof` workflow); the
+   still-open step is two *independent home networks* introduced by a
+   hosted seed.
 
 ## Shortfalls the audit named, and their status
 
@@ -32,7 +36,7 @@ Two products live here:
 | 5 | Savings numbers over-claimable | **HELD** — only measured counterfactuals in `net_saved`; compression savings labelled ESTIMATE in a separate bucket; the product promises "we show you what we saved," never a headline % |
 | 6 | Semantic cache is lexical, not neural | **HONEST + PLUGGABLE** — labelled `lexical-3gram`; a real neural embedder plugs into `embed_fn`. Not claimed to be paraphrase-aware |
 | 7 | Compression is dedup/whitespace, not LLMLingua | **HONEST + PLUGGABLE** — `compress_fn` slot for a local model; shipped transforms are deterministic and itemised |
-| 8 | No real WAN proof; zero live nodes | **OPEN** — the ~$20 two-network run is the next milestone. Everything mesh-side is currently validated in-process only |
+| 8 | No real WAN proof; zero live nodes | **PARTLY DONE** — a cross-internet run has cleared: a buyer-only node on a GitHub runner (Microsoft's network) submitted a signed job that a home node behind NAT executed, via a Cloudflare tunnel, no shared network or seed (public `.github/workflows/wan-proof.yml` + its Actions logs; re-runnable). Still **OPEN**: two *independent home networks* introduced by a hosted seed VM |
 | 9 | No HA / multi-tenant / TLS on the gateway | **OPEN** — single-process, file-backed; fine for a pilot, not for scale. TLS should terminate at a reverse proxy in front |
 | 10 | Not run against a real LLM API | **OPEN** — needs a paid API key; subscription OAuth (e.g. Claude Code's) cannot be proxied |
 
@@ -58,7 +62,9 @@ Two products live here:
 
 ## Next milestones (in order)
 
-1. The two-network mesh proof (one real cross-internet job clears).
+1. ~~One real cross-internet job clears~~ **DONE** (cloud runner → home
+   node behind NAT; `wan-proof` workflow). Next: two *independent home
+   networks* introduced by a hosted seed VM.
 2. Run the gateway against one real API + one real workload; publish
    the measured savings.
 3. The economic layer above quorum (stake + slashing + reputation)

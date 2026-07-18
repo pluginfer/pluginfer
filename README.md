@@ -54,15 +54,21 @@ already supports it. Your provider key stays server-side.
   upstream *actually billed* last time), opt-in cheap-model cascade
   with a conservative scorer, opt-in prompt compression. Escalation
   overhead is shown in red, subtracted from net — never hidden.
-- **Task-aware model routing** — three ways, your choice:
+- **One gateway, many LLMs — automatic model selection.** Plug in any
+  number of models (one is fine too) and let the router do the picking
+  that used to be a manual, per-request judgment call:
   `PLUGINFER_GW_AUTOROUTE=save` sends easy prompts (chat/summarize/
-  extract) to your cheapest model and leaves hard ones alone;
-  `=smart` also upgrades hard prompts (code/long-context) to your most
-  capable model; or write full custom rules (`PLUGINFER_GW_ROUTES`) to
-  map any envelope / prompt pattern / task / size to any model. The
-  classifier is transparent keyword heuristics, not a hidden model, so
-  every route is explainable on the receipt. Upgrades that cost more
-  are recorded as a **negative** saving — never disguised as a win.
+  extract) to your cheapest model and leaves hard ones alone; `=smart`
+  also upgrades hard prompts (code/long-context) to your most capable
+  model; or write full custom rules (`PLUGINFER_GW_ROUTES`) mapping any
+  envelope / prompt pattern / task / size to any model. Models can live
+  on **different providers** — give a price-sheet entry its own
+  `upstream` and `api_key_env` and that model's calls leave for its own
+  provider with its own key, so `gpt-4o`→OpenAI and `claude`→Anthropic
+  from a single endpoint. The classifier is transparent keyword
+  heuristics, not a hidden model, so every route is explainable on the
+  receipt. Upgrades that cost more are recorded as a **negative**
+  saving — never disguised as a win.
 - **Signed, hash-chained receipts** — Ed25519 by default; each receipt
   embeds the previous one's hash and survives restarts. Any edit to
   history is caught at the exact receipt, verifiable by a third party

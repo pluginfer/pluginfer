@@ -566,3 +566,55 @@ def test_upstream_override_allowlisted_and_ssrf_refused():
             "messages": [{"role": "user", "content": "hi"}]})
         assert r3.status_code == 200
         assert seen[-1].startswith("https://upstream.example")
+
+
+# ---------------------------------------------------------------------------
+# Multi-LLM: per-model provider routing (one gateway, many providers)
+# ---------------------------------------------------------------------------
+
+def test_per_model_upstream_routes_each_model_to_its_provider(monkeypatch):
+    monkeypatch.setenv("OA_KEY", "sk-oa")
+    monkeypatch.setenv("AN_KEY", "sk-an")
+    seen = []
+
+    def upstream(url, body, headers, timeout_s):
+        seen.append((url, headers.get("Authorization")))
+        return 200, json.dumps({"choices": [{"message": {"content": "ok"},
+                "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 5}}).encode()
+
+    prices = {
+        "gpt-4o": {"input_per_1m": 2.5, "output_per_1m": 10,
+                   "upstream": "https://api.openai.com", "api_key_env": "OA_KEY"},
+        "claude": {"input_per_1m": 3, "output_per_1m": 15,
+                   "upstream": "https://api.anthropic.com", "api_key_env": "AN_KEY"},
+    }
+    app = build_governance_gateway(
+        budget=BudgetLedger(), upstream_base="https://default.example",
+        price_sheet=prices, http_post=upstream)
+    with TestClient(app) as c:
+        c.post("/v1/chat/completions", json={"model": "gpt-4o",
+               "messages": [{"role": "user", "content": "hi"}]})
+        c.post("/v1/chat/completions", json={"model": "claude",
+               "messages": [{"role": "user", "content": "hi"}]})
+    assert "api.openai.com" in seen[0][0] and seen[0][1] == "Bearer sk-oa"
+    assert "api.anthropic.com" in seen[1][0] and seen[1][1] == "Bearer sk-an"
+
+
+def test_single_provider_unchanged_when_no_per_model_upstream():
+    seen = []
+
+    def upstream(url, body, headers, timeout_s):
+        seen.append(url)
+        return 200, json.dumps({"choices": [{"message": {"content": "ok"},
+                "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 5, "completion_tokens": 5}}).encode()
+
+    app = build_governance_gateway(
+        budget=BudgetLedger(), upstream_base="https://one.example",
+        price_sheet={"m": {"input_per_1m": 1, "output_per_1m": 2}},
+        http_post=upstream)
+    with TestClient(app) as c:
+        c.post("/v1/chat/completions", json={"model": "m",
+               "messages": [{"role": "user", "content": "hi"}]})
+    assert seen and "one.example" in seen[0]

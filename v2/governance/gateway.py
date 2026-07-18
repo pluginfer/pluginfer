@@ -309,6 +309,22 @@ class GovernanceGateway:
                                    for u in (upstream_allowlist or [])]
         self.price_sheet = dict(price_sheet)
         self.upstream_api_key = upstream_api_key
+        # Per-model providers: a price-sheet entry MAY carry its own
+        # "upstream" (base URL) and "api_key_env" (name of the env var
+        # holding that provider's key). This is what lets ONE gateway
+        # front many LLMs from DIFFERENT providers at once — the router
+        # picks the model, and each model's call goes to its own
+        # provider with its own key. Models without these fall back to
+        # the default upstream, so single-provider setups are unchanged.
+        self.model_upstreams: Dict[str, Dict[str, Optional[str]]] = {}
+        for _m, _p in self.price_sheet.items():
+            _base = _p.get("upstream") if isinstance(_p, dict) else None
+            if _base:
+                _keyenv = _p.get("api_key_env")
+                self.model_upstreams[_m] = {
+                    "base": str(_base).rstrip("/"),
+                    "key": os.environ.get(_keyenv) if _keyenv else None,
+                }
         # Auth: build a config from a bare admin_key if that legacy arg
         # was passed; else use the supplied AuthConfig (or an empty,
         # open one for dev/test).
@@ -650,17 +666,27 @@ class GovernanceGateway:
     # Upstream plumbing
     # ------------------------------------------------------------------
 
-    def _upstream_headers(self, request: FastApiRequest
+    def _upstream_for_model(self, model: str) -> Tuple[str, Optional[str]]:
+        """(base_url, api_key) for a model: its own provider when the
+        price sheet configured one, else the default upstream + key."""
+        m = self.model_upstreams.get(model)
+        if m and m.get("base"):
+            return m["base"], m.get("key")
+        return self.upstream_base, self.upstream_api_key
+
+    def _upstream_headers(self, request: FastApiRequest,
+                          api_key: Optional[str] = "__default__"
                           ) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
         for h in _PASSTHROUGH_HEADERS:
             v = request.headers.get(h)
             if v:
                 headers[h.title()] = v
-        if self.upstream_api_key:
+        key = self.upstream_api_key if api_key == "__default__" else api_key
+        if key:
             # Enterprise mode: the REAL provider key lives only here.
-            headers["Authorization"] = f"Bearer {self.upstream_api_key}"
-            headers["X-Api-Key"] = self.upstream_api_key
+            headers["Authorization"] = f"Bearer {key}"
+            headers["X-Api-Key"] = key
         return headers
 
     def _post_upstream(self, path: str, body: Dict[str, Any],
@@ -764,6 +790,13 @@ class GovernanceGateway:
                          f"sheet — refusing to forward a call we can't "
                          f"price. Configured: "
                          f"{sorted(self.price_sheet)}"})
+        # Per-model provider: an explicit X-Pluginfer-Upstream header
+        # wins (it was validated above); otherwise the FINAL routed
+        # model chooses its own provider + key. This is the multi-LLM
+        # path — different models leave for different providers.
+        upstream_key = self.upstream_api_key
+        if not request.headers.get("x-pluginfer-upstream"):
+            eff_base, upstream_key = self._upstream_for_model(model)
         if comp_report["tokens_removed_est"]:
             p = self._prices_for(model)
             if p:
@@ -832,7 +865,7 @@ class GovernanceGateway:
                 "report_url": "/v1/budget/report",
             })
 
-        headers = self._upstream_headers(request)
+        headers = self._upstream_headers(request, api_key=upstream_key)
         if body.get("stream"):
             return self._governed_stream(
                 request=request, upstream_path=upstream_path,
