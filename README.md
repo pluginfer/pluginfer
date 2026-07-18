@@ -79,24 +79,35 @@ network except your own upstream calls.
 The longer bet: a sealed-bid compute marketplace where peer GPUs and
 private datacenters bid against centralized APIs, with quorum
 verification (K-of-N agreement across independent nodes) as the
-honest mitigation for untrusted compute. The engineering is real and
-tested (~1,100 tests) — and it has not yet cleared a real-WAN,
-two-strangers run. We publish [AUDIT.md](AUDIT.md) so nobody has to
-take our word for which claims are proven, mitigated, or open.
+honest mitigation for untrusted compute. We publish
+[AUDIT.md](AUDIT.md) so nobody has to take our word for which claims
+are proven, mitigated, or open.
+
+**Two-strangers WAN run: cleared.** A GitHub-hosted runner (a machine
+on Microsoft's network) submitted a job to a node behind a home router
+NAT, over the open internet, with no shared network and no seed — the
+home node executed and signed it. It's a public, re-runnable proof:
+see the [`wan-proof`
+workflow](.github/workflows/wan-proof.yml) and its Actions logs. The
+still-open milestone is two *independent home networks* introduced by a
+public seed (needs a hosted seed VM) — tracked honestly, not claimed.
 
 Run a node:
 
 ```sh
 cd v2 && pip install -r requirements.txt
-python pluginfer.py up
-# Point ANY OpenAI client at your own node:
-export OPENAI_BASE_URL=http://127.0.0.1:8100/v1
+python pluginfer.py up            # your own gateway, local
+python pluginfer.py up --share    # + let the mesh reach you (auto-tunnel)
 ```
 
 `up` detects your hardware, binds local models (real ones via
 [Ollama](https://ollama.com) if present; an honestly-tagged echo
-otherwise), joins a mesh if a seed is reachable, and self-supervises.
-`python pluginfer.py up --seed-host <seed-ip>` joins a specific mesh.
+otherwise), self-supervises, and points any OpenAI client at
+`http://127.0.0.1:8100/v1`. `--share` opens a free
+[Cloudflare](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/)
+tunnel (no account, no card) so other nodes can send you jobs with zero
+router config — the one manual step of running a public node, made
+automatic. `--seed-host <ip>` joins a specific mesh.
 
 ### Testnet economics — stated up-front
 

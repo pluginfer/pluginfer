@@ -173,7 +173,13 @@ def main(argv: Optional[List[str]] = None) -> None:
                     help=f"Gateway port (default: {PREFERRED_PORT}, else first free).")
     ap.add_argument("--wallet-path",
                     default=str(Path.home() / ".pluginfer" / "auto_mesh_wallet.pem"))
+    ap.add_argument("--share", action="store_true",
+                    help="Make this node reachable by the whole mesh via a "
+                         "free auto-tunnel, so others can send it jobs. "
+                         "Without this, the node is local-only.")
     args = ap.parse_args(argv)
+    # PLUGINFER_SHARE=1 is the env-equivalent (for installers / one-click).
+    share = args.share or os.environ.get("PLUGINFER_SHARE", "0") == "1"
 
     # Windows consoles (and redirected stdout) default to cp1252, which
     # hard-crashes on the first non-ASCII char ANY imported module ever
@@ -233,6 +239,23 @@ def main(argv: Optional[List[str]] = None) -> None:
               "gateway works fully; join a mesh anytime with --seed-host.")
 
     port = args.port or pick_port(PREFERRED_PORT)
+
+    # --share: auto-tunnel so the whole mesh can reach this node with no
+    # router config. The node advertises the public https host (port 443
+    # -> https, handled by the mesh) instead of an unroutable LAN ip.
+    tunnel_proc = None
+    public_host = None
+    if share:
+        _say("")
+        _say("  Sharing your node with the mesh (opening a public tunnel)...")
+        from tools.tunnel import start_quick_tunnel
+        public_host, tunnel_proc = start_quick_tunnel(port, _say)
+        if public_host:
+            os.environ["PLUGINFER_PUBLIC_IP"] = public_host
+            os.environ["PLUGINFER_PUBLIC_PORT"] = "443"
+            _say(f"  You are LIVE on the internet: https://{public_host}")
+            _say("  Anyone on the mesh can now send jobs to your node.")
+
     _step(5, total, f"Starting node on port {port} ...")
 
     base = f"http://127.0.0.1:{port}"
@@ -271,31 +294,47 @@ def main(argv: Optional[List[str]] = None) -> None:
     # that stays healthy for 10 minutes resets the backoff. Only
     # Ctrl+C exits.
     import time as _time
+
+    def _stop_tunnel():
+        if tunnel_proc is not None:
+            try:
+                tunnel_proc.terminate()
+            except Exception:
+                pass
+
     backoff_s = 2.0
-    while True:
-        started = _time.monotonic()
-        try:
-            asyncio.run(auto_mesh._run(run_args))
-            _say("  Node loop exited cleanly; restarting in 2s "
-                 "(Ctrl+C to stop).")
-            backoff_s = 2.0
-        except KeyboardInterrupt:
-            _say("\n  Node stopped. Run 'pluginfer up' anytime to come "
-                 "back online.")
-            return
-        except Exception as e:
-            healthy_s = _time.monotonic() - started
-            if healthy_s > 600:
+    try:
+        while True:
+            started = _time.monotonic()
+            try:
+                asyncio.run(auto_mesh._run(run_args))
+                _say("  Node loop exited cleanly; restarting in 2s "
+                     "(Ctrl+C to stop).")
                 backoff_s = 2.0
-            _say(f"  Node crashed after {healthy_s:.0f}s "
-                 f"({type(e).__name__}: {e}) -- restarting in "
-                 f"{backoff_s:.0f}s. It never stays down.")
-        try:
-            _time.sleep(backoff_s)
-        except KeyboardInterrupt:
-            _say("\n  Node stopped.")
-            return
-        backoff_s = min(backoff_s * 2, 60.0)
+            except KeyboardInterrupt:
+                _say("\n  Node stopped. Run 'pluginfer up' anytime to come "
+                     "back online.")
+                return
+            except Exception as e:
+                healthy_s = _time.monotonic() - started
+                if healthy_s > 600:
+                    backoff_s = 2.0
+                _say(f"  Node crashed after {healthy_s:.0f}s "
+                     f"({type(e).__name__}: {e}) -- restarting in "
+                     f"{backoff_s:.0f}s. It never stays down.")
+            # If the tunnel died but the node lives, the public URL is
+            # stale — honestly tell the operator rather than pretend.
+            if tunnel_proc is not None and tunnel_proc.poll() is not None:
+                _say("  Note: the public tunnel dropped; you are local-only "
+                     "until you re-run with --share.")
+            try:
+                _time.sleep(backoff_s)
+            except KeyboardInterrupt:
+                _say("\n  Node stopped.")
+                return
+            backoff_s = min(backoff_s * 2, 60.0)
+    finally:
+        _stop_tunnel()
 
 
 if __name__ == "__main__":
