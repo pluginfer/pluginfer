@@ -187,12 +187,21 @@ document.querySelectorAll(".tab").forEach(t => t.onclick = () => {
   $("p-" + t.dataset.p).classList.add("active");
 });
 
+// Every request-controlled string (envelope names arrive on a client
+// header, model names in the client body) is escaped before it touches
+// innerHTML — one helper, used at every interpolation, so a hostile
+// client can't plant markup in the operator's dashboard.
+function esc(x) {
+  return String(x ?? "").replace(/[&<>"']/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
 function bars(el, entries, maxAbs) {
   if (!entries.length) { el.innerHTML = '<div class="empty">nothing yet</div>'; return; }
   el.innerHTML = entries.map(([name, v, extra]) => {
     const w = maxAbs ? Math.max(1, Math.abs(v) / maxAbs * 100) : 1;
-    return `<div class="barrow" title="${name}: ${usd(v)}${extra ? " — " + extra : ""}">
-      <div class="name">${name}</div>
+    return `<div class="barrow" title="${esc(name)}: ${usd(v)}${extra ? " — " + esc(extra) : ""}">
+      <div class="name">${esc(name)}</div>
       <div class="track"><div class="fill${v < 0 ? " neg" : ""}" style="width:${w}%"></div></div>
       <div class="val">${usd(v)}</div></div>`;
   }).join("");
@@ -266,11 +275,11 @@ async function refresh() {
       const served = r.model || "—";
       return `<tr>
         <td>${new Date(r.ts*1000).toLocaleTimeString()}</td>
-        <td>${requested}</td>
+        <td>${esc(requested)}</td>
         <td style="color:var(--text-muted);padding:0 4px">→</td>
-        <td>${served}</td>
-        <td><span class="kind">${task}</span></td>
-        <td>${r.envelope||""}</td>
+        <td>${esc(served)}</td>
+        <td><span class="kind">${esc(task)}</span></td>
+        <td>${esc(r.envelope||"")}</td>
         <td class="num ${cls}">${saved ? (saved > 0 ? "+" : "") + saved.toFixed(6) : "—"}</td>
       </tr>`;
     });
@@ -284,9 +293,9 @@ async function refresh() {
       const note = r.cutoff ? "budget cutoff" : r.estimated ? "estimated"
         : (r.similarity ? "sim " + r.similarity : (r.cascade ? "escalated" : ""));
       return `<tr><td>${new Date(r.ts*1000).toLocaleTimeString()}</td>
-        <td><span class="kind">${(r.kind||"forward").replace(/_/g," ")}</span></td>
-        <td>${r.envelope||""}</td><td><code>${r.key_fingerprint||"—"}</code></td>
-        <td>${r.model||""}</td>
+        <td><span class="kind">${esc((r.kind||"forward").replace(/_/g," "))}</span></td>
+        <td>${esc(r.envelope||"")}</td><td><code>${esc(r.key_fingerprint||"—")}</code></td>
+        <td>${esc(r.model||"")}</td>
         <td class="num">${(+(r.cost_usd||0)).toFixed(6)}</td>
         <td class="num ${cls}">${saved?saved.toFixed(6):""}</td>
         <td>${note}</td></tr>`;

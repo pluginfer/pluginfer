@@ -824,3 +824,19 @@ def test_existing_savings_json_fields_unchanged():
         "compression_saved_est_usd", "by_envelope", "note",
     }
     assert required_fields.issubset(set(sav.keys()))
+
+
+def test_dashboard_escapes_hostile_model_names():
+    """A client-supplied model name containing markup must not appear
+    unescaped anywhere a browser would parse it — the dashboard escapes
+    every request-controlled string before innerHTML. This pins the
+    esc() hardening that followed PR #6."""
+    app, _, _ = _stack()
+    with TestClient(app) as c:
+        r = c.get("/dashboard")
+    html = r.text
+    # The esc helper itself must exist and be used on the risky fields.
+    assert "function esc(" in html
+    for needle in ("esc(requested)", "esc(served)", "esc(r.envelope",
+                   "esc(r.model", "esc(r.key_fingerprint", "esc(name)"):
+        assert needle in html, f"unescaped interpolation: {needle}"
