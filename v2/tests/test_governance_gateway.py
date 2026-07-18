@@ -618,3 +618,209 @@ def test_single_provider_unchanged_when_no_per_model_upstream():
         c.post("/v1/chat/completions", json={"model": "m",
                "messages": [{"role": "user", "content": "hi"}]})
     assert seen and "one.example" in seen[0]
+
+
+# ---------------------------------------------------------------------------
+# Issue #5: Routing decisions on the Signet dashboard
+# ---------------------------------------------------------------------------
+
+from governance.router import ModelRouter
+
+# Price sheet for routing tests: gpt-cheap (cheap) and gpt-exp (expensive).
+_ROUTE_PRICES = {
+    "gpt-cheap": {"input_per_1m": 0.5, "output_per_1m": 1.5},
+    "gpt-exp":   {"input_per_1m": 5.0, "output_per_1m": 15.0},
+}
+
+# Router that sends every request to gpt-cheap regardless of requested model.
+_SAVE_ROUTER = ModelRouter([
+    {"id": "save-all", "when": {}, "use": "gpt-cheap"},
+])
+
+# Router that upgrades to gpt-exp (smart-mode: may cost more).
+_SMART_ROUTER = ModelRouter([
+    {"id": "smart-all", "when": {}, "use": "gpt-exp"},
+])
+
+
+def _routed_upstream(in_tok=1000, out_tok=500):
+    """Upstream stub returning a well-formed response with usage."""
+    def post(url, body, headers, timeout_s):
+        resp = {
+            "id": "cmpl-r", "object": "chat.completion",
+            "choices": [{"message": {"role": "assistant", "content": "ok"},
+                         "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": in_tok, "completion_tokens": out_tok},
+        }
+        return 200, json.dumps(resp).encode()
+    return post
+
+
+def _route_stack(router, cap_usd=10.0, in_tok=1000, out_tok=500,
+                 prices=None):
+    """Build a gateway with the given router and route-specific price sheet."""
+    budget = BudgetLedger(None)
+    budget.set_envelope("acme", cap_usd, "month")
+    app = build_governance_gateway(
+        budget=budget,
+        upstream_base="https://upstream.example",
+        price_sheet=prices or _ROUTE_PRICES,
+        http_post=_routed_upstream(in_tok, out_tok),
+        router=router,
+    )
+    return app, budget
+
+
+def _route_chat(client, model="gpt-exp", envelope="acme/eng"):
+    """POST a minimal chat request to the routing gateway."""
+    body = {"model": model,
+            "messages": [{"role": "user", "content": "hello world"}],
+            "max_tokens": 100}
+    return client.post("/v1/chat/completions", json=body,
+                       headers={"X-Budget-Envelope": envelope})
+
+
+# --- 1. A routed receipt contains the required fields ---
+
+def test_routing_receipt_fields_are_present():
+    """A routed call produces kind='routed' with requested_model, model,
+    routing.task, and saved_usd — all from the signed receipt."""
+    app, _ = _route_stack(_SAVE_ROUTER)
+    with TestClient(app) as c:
+        r = _route_chat(c)
+        assert r.status_code == 200
+        rec = c.get("/v1/receipts").json()["receipts"][-1]
+    assert rec["kind"] == "routed"
+    assert rec["requested_model"] == "gpt-exp"      # what was asked
+    assert rec["model"] == "gpt-cheap"              # what was served
+    assert isinstance(rec["routing"], dict)
+    assert "task" in rec["routing"]                 # task label from classifier
+    assert "saved_usd" in rec                       # signed delta
+
+
+# --- 2. Positive routing saving (cheaper model served) ---
+
+def test_routing_positive_saving():
+    """Routing to a cheaper model yields a positive saved_usd on the receipt
+    and positive routing_saved_usd in /v1/savings."""
+    # gpt-exp @ 1000 in / 500 out = 1000/1e6*5 + 500/1e6*15 = 0.0125
+    # gpt-cheap @ same usage     = 1000/1e6*0.5 + 500/1e6*1.5 = 0.00125
+    # routing delta = 0.0125 - 0.00125 = 0.01125 (positive)
+    app, budget = _route_stack(_SAVE_ROUTER, in_tok=1000, out_tok=500)
+    with TestClient(app) as c:
+        r = _route_chat(c, model="gpt-exp")
+        assert r.status_code == 200
+        rec = c.get("/v1/receipts").json()["receipts"][-1]
+        sav = c.get("/v1/savings").json()
+    assert rec["saved_usd"] == pytest.approx(0.01125)
+    assert sav["routing_saved_usd"] == pytest.approx(0.01125)
+    assert sav["routing_saved_usd"] > 0
+
+
+# --- 3. Negative routing saving (smart-mode upgrade costs more) ---
+
+def test_routing_negative_saving():
+    """Routing from cheap to expensive produces a negative saved_usd —
+    the upgrade cost is recorded honestly and never clamped to zero."""
+    # Requested: gpt-cheap; served: gpt-exp (smart upgrade).
+    # gpt-cheap @ 1000 in / 500 out = 0.00125
+    # gpt-exp   @ same usage        = 0.0125
+    # routing delta = 0.00125 - 0.0125 = -0.01125 (negative)
+    app, _ = _route_stack(_SMART_ROUTER, in_tok=1000, out_tok=500)
+    with TestClient(app) as c:
+        r = _route_chat(c, model="gpt-cheap")
+        assert r.status_code == 200
+        rec = c.get("/v1/receipts").json()["receipts"][-1]
+        sav = c.get("/v1/savings").json()
+    assert rec["kind"] == "routed"
+    assert rec["saved_usd"] == pytest.approx(-0.01125)  # negative, kept as-is
+    assert sav["routing_saved_usd"] < 0
+
+
+# --- 4. Multiple routing decisions all appear ---
+
+def test_routing_multiple_decisions():
+    """Multiple routed calls each produce a kind='routed' receipt; all are
+    visible in /v1/receipts and aggregated in routing_saved_usd."""
+    app, _ = _route_stack(_SAVE_ROUTER, in_tok=1000, out_tok=500)
+    with TestClient(app) as c:
+        for _ in range(3):
+            r = _route_chat(c, model="gpt-exp")
+            assert r.status_code == 200
+        receipts = c.get("/v1/receipts").json()["receipts"]
+        sav = c.get("/v1/savings").json()
+    routed = [r for r in receipts if r["kind"] == "routed"]
+    assert len(routed) == 3
+    # Net = 3 × 0.01125
+    assert sav["routing_saved_usd"] == pytest.approx(3 * 0.01125)
+
+
+# --- 5. No routing decisions when no router is configured ---
+
+def test_no_routing_decisions_without_router():
+    """When no router is attached, no receipt has kind='routed' and
+    routing_saved_usd is zero."""
+    app, _, _ = _stack()        # default _stack has no router
+    with TestClient(app) as c:
+        _chat(c)
+        receipts = c.get("/v1/receipts").json()["receipts"]
+        sav = c.get("/v1/savings").json()
+    routed = [r for r in receipts if r.get("kind") == "routed"]
+    assert routed == []
+    assert sav["routing_saved_usd"] == 0.0
+
+
+# --- 6. routing_saved_usd aggregates across mixed positive/negative ---
+
+def test_routing_savings_net_aggregation():
+    """Mixed positive and negative routing savings net correctly in
+    savings_summary() — no value is laundered away."""
+    # One save call (+0.01125) then one smart-upgrade (–0.01125): net = 0.
+    save_app, _ = _route_stack(_SAVE_ROUTER, in_tok=1000, out_tok=500)
+    smart_app, _ = _route_stack(_SMART_ROUTER, in_tok=1000, out_tok=500)
+    with TestClient(save_app) as sc:
+        _route_chat(sc, model="gpt-exp")
+        sav_pos = sc.get("/v1/savings").json()["routing_saved_usd"]
+    with TestClient(smart_app) as sc2:
+        _route_chat(sc2, model="gpt-cheap")
+        sav_neg = sc2.get("/v1/savings").json()["routing_saved_usd"]
+    assert sav_pos == pytest.approx(0.01125)
+    assert sav_neg == pytest.approx(-0.01125)
+
+
+# --- 7. Dashboard HTML contains the routing section ---
+
+def test_dashboard_contains_routing_section():
+    """The /dashboard page contains the Routing tab and panel elements
+    that Issue #5 requires — structure test for the presentation layer."""
+    app, _, _ = _stack()
+    with TestClient(app) as c:
+        r = c.get("/dashboard")
+    assert r.status_code == 200
+    html = r.text
+    # Tab must be present.
+    assert "Routing" in html
+    # Panel tbody where JS writes routing rows.
+    assert "rtbody" in html
+    # Net savings tile.
+    assert "rt-net" in html
+    # Count tile.
+    assert "rt-count" in html
+
+
+# --- 8. Existing /v1/savings JSON schema is unchanged ---
+
+def test_existing_savings_json_fields_unchanged():
+    """Adding routing display must not drop or rename any existing field
+    in the /v1/savings response (preserves existing API contract)."""
+    app, _, _ = _stack()
+    with TestClient(app) as c:
+        sav = c.get("/v1/savings").json()
+    required_fields = {
+        "cache_hits", "cache_misses", "cache_saved_usd",
+        "semantic_cache", "semantic_saved_usd",
+        "cascade_saved_usd", "routing_saved_usd",
+        "cascade_escalation_cost_usd", "net_saved_usd",
+        "compression_saved_est_usd", "by_envelope", "note",
+    }
+    assert required_fields.issubset(set(sav.keys()))
