@@ -238,6 +238,9 @@ class JobServer:
     connector: MeshConnector
     inner_provider: Provider
     on_request: Optional[Callable[[JobSpec, Bid], None]] = None
+    # Strong refs to in-flight request handlers — create_task alone is
+    # only weakly referenced and the GC can kill a running handler.
+    _bg_tasks: set = field(default_factory=set)
 
     def attach(self) -> None:
         """Install the request handler on the connector. Calling this
@@ -276,7 +279,10 @@ class JobServer:
                     prior(payload)
                 except Exception as e:                          # pragma: no cover
                     logger.warning("prior on_message raised: %s", e)
-            asyncio.create_task(self._handle_request(ch, payload))
+            # Strong ref — a GC'd task would silently drop the request.
+            t = asyncio.create_task(self._handle_request(ch, payload))
+            self._bg_tasks.add(t)
+            t.add_done_callback(self._bg_tasks.discard)
         ch.on_message = _on
 
     async def _handle_request(self, ch: MeshChannel, payload: bytes) -> None:

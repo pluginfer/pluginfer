@@ -84,6 +84,7 @@ class HolePunchClient(asyncio.DatagramProtocol):
         local_pubkey_pem: str,
         sign: Callable[[str], str],
     ) -> None:
+        self._bg_tasks: set = set()
         self.seed_addr = seed_addr
         self.local_pubkey_pem = local_pubkey_pem
         self.sign = sign
@@ -255,7 +256,10 @@ class HolePunchClient(asyncio.DatagramProtocol):
                 nonce = str(msg["nonce"])
             except (KeyError, TypeError, ValueError):
                 return
-            asyncio.create_task(self._do_hello_burst(peer_addr, nonce))
+            # Strong ref — a GC'd task would silently drop the burst.
+            t = asyncio.create_task(self._do_hello_burst(peer_addr, nonce))
+            self._bg_tasks.add(t)
+            t.add_done_callback(self._bg_tasks.discard)
             # Migrate the pending future from target-keyed to nonce-keyed.
             pending = self._pending.get(peer_pub)
             if pending is not None and pending.future and not pending.future.done():

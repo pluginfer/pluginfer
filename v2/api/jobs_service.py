@@ -125,6 +125,11 @@ class JobsService:
     # state for `completed` jobs by the devserver / API layer when a
     # gateway_wallet is available (see `attest_receipt`).
     pnis_receipts: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    # Strong refs to fire-and-forget tasks. asyncio.create_task alone
+    # keeps only a WEAK reference — the GC can destroy a running task,
+    # silently freezing its job at "running" (seen as a rare ubuntu CI
+    # flake). Every background spawn goes through _spawn().
+    _bg_tasks: set = field(default_factory=set)
     # Gateway wallet used to sign PNIS receipts. Constructed on first
     # use so test fixtures don't pay the cost.
     gateway_wallet: Optional[Any] = None
@@ -461,7 +466,7 @@ class JobsService:
                     await self._push_event(rec, "job.failed")
                     return rec
             await self._push_event(rec, "job.matched")
-            asyncio.create_task(self._run_consortium(rec, spec, consortium))
+            self._spawn(self._run_consortium(rec, spec, consortium))
             return rec
 
         # Auction is sync (we run it in a thread to keep the loop
@@ -519,8 +524,15 @@ class JobsService:
 
         # Schedule execution on the loop. Don't await — caller should
         # poll or subscribe to SSE.
-        asyncio.create_task(self._run_job(rec, spec, winner))
+        self._spawn(self._run_job(rec, spec, winner))
         return rec
+
+    def _spawn(self, coro) -> "asyncio.Task":
+        """create_task + strong reference until done (GC-proof)."""
+        task = asyncio.create_task(coro)
+        self._bg_tasks.add(task)
+        task.add_done_callback(self._bg_tasks.discard)
+        return task
 
     async def _run_job(self, rec: JobRecord, spec: JobSpec, winner: Bid) -> None:
         # Wrap the WHOLE body so any exception transitions the job to
@@ -865,7 +877,7 @@ class JobsService:
         rec.state = "matched"
         rec.detail = None
         await self._push_event(rec, "job.matched")
-        asyncio.create_task(self._run_job(rec, spec, winner))
+        self._spawn(self._run_job(rec, spec, winner))
         return rec
 
     async def abandon(self, job_id: str, *, deliver_partial: bool = True) -> Optional[JobRecord]:

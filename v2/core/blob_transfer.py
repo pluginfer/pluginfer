@@ -120,6 +120,7 @@ class BlobSender:
     receiver's NACKs can drive retransmission."""
 
     def __init__(self, channel: MeshChannel) -> None:
+        self._bg_tasks: set = set()
         self.channel = channel
         # blob_id -> _PendingSend
         self._inflight: Dict[str, _PendingSend] = {}
@@ -148,7 +149,12 @@ class BlobSender:
                 rec = self._inflight.get(blob_id)
                 if rec is None or not isinstance(missing, list):
                     return
-                asyncio.create_task(self._retransmit(rec, [int(i) for i in missing]))
+                # Strong ref — a GC'd task would silently drop the
+                # retransmit and stall the transfer.
+                t = asyncio.create_task(
+                    self._retransmit(rec, [int(i) for i in missing]))
+                self._bg_tasks.add(t)
+                t.add_done_callback(self._bg_tasks.discard)
             elif op == "BLOB_DONE":
                 blob_id = str(msg.get("blob_id", ""))
                 rec = self._inflight.get(blob_id)

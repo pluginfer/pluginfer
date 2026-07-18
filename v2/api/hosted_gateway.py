@@ -220,7 +220,7 @@ def build_hosted_gateway(
         for rec_obj in list(jobs_service.jobs.values()):
             if (rec_obj.state == "paused_funding"
                     and getattr(rec_obj, "_buyer_wallet_id", None) == wallet_id):
-                asyncio.create_task(jobs_service.resume_funding(rec_obj.job_id))
+                jobs_service._spawn(jobs_service.resume_funding(rec_obj.job_id))
         return {**w.to_public(), "credited_usd": str(amount)}
 
     @app.post("/v1/chat/completions")
