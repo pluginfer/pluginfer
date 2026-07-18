@@ -361,6 +361,28 @@ class JobsService:
                 self.jobs[rec.job_id] = rec
                 self._persist(rec)
                 return rec
+        # §HG20+HG21 — buyer opt-in quorum: {"quorum_n": N} is sugar
+        # for the consortium's quorum-replicate mode. ONE quorum
+        # mechanism (the consortium path), not two — this only
+        # translates the request. Streaming can't be majority-voted
+        # (voting needs complete results), so quorum is ignored there
+        # with an honest note on the record.
+        quorum_note: Optional[str] = None
+        quorum_sugar = False
+        try:
+            _qn = int((payload or {}).get("quorum_n", 0) or 0)
+        except (TypeError, ValueError):
+            _qn = 0
+        if _qn > 1 and streaming:
+            quorum_note = ("quorum_ignored: streaming jobs cannot be "
+                           "majority-voted — submit non-streaming for "
+                           "quorum verification")
+        elif _qn > 1:
+            payload = dict(payload or {})
+            payload["consortium"] = {"size": min(_qn, 5),
+                                     "mode": "quorum-replicate"}
+            quorum_sugar = True
+
         rec = JobRecord(
             job_id=job_id,
             kind=kind,
@@ -372,6 +394,7 @@ class JobsService:
             submitted_at_unix=time.time(),
             requester_identity=requester_identity,
             budget_envelope=envelope,
+            detail=quorum_note,
             delta_queue=asyncio.Queue() if streaming else None,
         )
         if streaming:
@@ -418,6 +441,7 @@ class JobsService:
                 # cheapest set of nodes whose summed performance
                 # scores meet `required_compute_score`. Multiple
                 # GTX 1650s combine to cover an H100-sized job.
+                _min_needed = 1
                 consortium = await asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: select_scale_to_compute(
@@ -427,47 +451,45 @@ class JobsService:
                     ),
                 )
             else:
+                # quorum sugar degrades gracefully: any 2+ providers
+                # can still vote (2-of-2 = unanimity). A replicate
+                # consortium below its minimum is NOT "partial" — a
+                # 1-member quorum would verify itself trivially, so
+                # the minimum is ENFORCED here (select_consortium
+                # itself returns partial sets by design).
+                _min_needed = (1 if sharding_mode == "data-parallel"
+                               else (2 if quorum_sugar
+                                     else consortium_size))
                 consortium = await asyncio.get_running_loop().run_in_executor(
                     None,
                     lambda: select_consortium(
                         self.auction, spec,
                         target_size=consortium_size,
-                        minimum_size=(1 if sharding_mode == "data-parallel"
-                                      else consortium_size),
+                        minimum_size=_min_needed,
                         sharding_mode=sharding_mode,
                     ),
                 )
-            if consortium.size == 0:
+            if consortium.size < _min_needed and quorum_sugar:
+                # Not enough providers to vote at all — run single-
+                # winner with an honest note instead of failing the
+                # buyer's job over an optional hardening request.
+                rec.detail = ("quorum_degraded: not enough eligible "
+                              "providers for a quorum — running "
+                              "single-winner")
+                payload.pop("consortium", None)
+            elif consortium.size < max(1, _min_needed):
                 rec.state = "failed"
-                rec.detail = "no_provider_matched_consortium"
+                rec.detail = (
+                    "no_provider_matched_consortium"
+                    if consortium.size == 0 else
+                    f"consortium_below_minimum: {consortium.size} < "
+                    f"{_min_needed} required for {sharding_mode}")
                 jobs_total.inc(labels={"status": "no_provider_matched"})
                 await self._push_event(rec, "job.failed")
                 return rec
-            rec.state = "matched"
-            rec.matched_provider_pubkey = (
-                f"consortium:{consortium.size}:{consortium.sharding_mode}"
-            )
-            rec.price_locked_usd = sum(m.bid.price_usd for m in consortium.members)
-            # Lock total consortium price up front. Refunded fully on
-            # complete failure; split per-member on success (each
-            # member's share net of commission).
-            if self.ledger is not None and buyer_wallet_id:
-                from decimal import Decimal
-                from core.buyer_ledger import InsufficientFunds
-                try:
-                    self.ledger.lock_for_job(
-                        buyer_wallet_id=buyer_wallet_id, job_id=rec.job_id,
-                        amount_usd=Decimal(str(rec.price_locked_usd)),
-                    )
-                    rec._buyer_wallet_id = buyer_wallet_id
-                except InsufficientFunds as e:
-                    rec.state = "failed"
-                    rec.detail = f"insufficient_funds: {e}"
-                    await self._push_event(rec, "job.failed")
-                    return rec
-            await self._push_event(rec, "job.matched")
-            self._spawn(self._run_consortium(rec, spec, consortium))
-            return rec
+            else:
+                return await self._match_and_spawn_consortium(
+                    rec, spec, consortium, buyer_wallet_id)
 
         # Auction is sync (we run it in a thread to keep the loop
         # responsive on a busy node).
@@ -533,6 +555,40 @@ class JobsService:
         self._bg_tasks.add(task)
         task.add_done_callback(self._bg_tasks.discard)
         return task
+
+    async def _match_and_spawn_consortium(self, rec: JobRecord,
+                                          spec: JobSpec, consortium: Any,
+                                          buyer_wallet_id: Optional[str]
+                                          ) -> JobRecord:
+        """Lock the total consortium price and dispatch execution.
+        Factored out of submit() so the quorum-sugar path and the
+        classic consortium path share one implementation."""
+        rec.state = "matched"
+        rec.matched_provider_pubkey = (
+            f"consortium:{consortium.size}:{consortium.sharding_mode}"
+        )
+        rec.price_locked_usd = sum(
+            m.bid.price_usd for m in consortium.members)
+        # Lock total consortium price up front. Refunded fully on
+        # complete failure; split per-member on success (each
+        # member's share net of commission).
+        if self.ledger is not None and buyer_wallet_id:
+            from decimal import Decimal
+            from core.buyer_ledger import InsufficientFunds
+            try:
+                self.ledger.lock_for_job(
+                    buyer_wallet_id=buyer_wallet_id, job_id=rec.job_id,
+                    amount_usd=Decimal(str(rec.price_locked_usd)),
+                )
+                rec._buyer_wallet_id = buyer_wallet_id
+            except InsufficientFunds as e:
+                rec.state = "failed"
+                rec.detail = f"insufficient_funds: {e}"
+                await self._push_event(rec, "job.failed")
+                return rec
+        await self._push_event(rec, "job.matched")
+        self._spawn(self._run_consortium(rec, spec, consortium))
+        return rec
 
     async def _run_job(self, rec: JobRecord, spec: JobSpec, winner: Bid) -> None:
         # Wrap the WHOLE body so any exception transitions the job to
@@ -1066,34 +1122,75 @@ class JobsService:
                 await self._push_event(rec, "job.failed")
                 return
             import base64
-            if exec_result.combined_result_bytes is not None:
-                rec.result_b64 = base64.b64encode(
-                    exec_result.combined_result_bytes,
-                ).decode("ascii")
-                rec.result_hash_hex = exec_result.combined_result_hash
-            rec.state = (
-                "completed" if not exec_result.failed_members
-                else "completed_partial"
-            )
-            rec.detail = (
-                f"consortium {len(successful)}/{consortium.size} ok, "
-                f"mode={consortium.sharding_mode}"
-            )
+            # quorum-replicate: the FINAL verdict comes from the one
+            # pure decision core over RECOMPUTED hashes — an accepted
+            # majority pays only its members; a dispute fails the job
+            # and refunds the buyer in full (previously a split-brain
+            # was billed as completed_partial with no result, and a
+            # byzantine dissenter with status=executed still got paid).
+            paid_ids: Optional[set] = None
+            quorum_outcome = None
+            if consortium.sharding_mode == "quorum-replicate":
+                from core.quorum_verify import evaluate_quorum
+                quorum_outcome = evaluate_quorum(
+                    [(e.get("provider_id"),
+                      e.get("result_hash_computed"))
+                     for e in exec_result.per_member],
+                    quorum=len(consortium.members) // 2 + 1,
+                    dispatched=len(consortium.members))
+                if not quorum_outcome.accepted:
+                    rec.state = "failed"
+                    rec.detail = (f"quorum_dispute: "
+                                  f"{quorum_outcome.reason}")
+                    paid_ids = set()
+                else:
+                    rec.result_b64 = base64.b64encode(
+                        exec_result.combined_result_bytes,
+                    ).decode("ascii")
+                    rec.result_hash_hex = \
+                        exec_result.combined_result_hash
+                    rec.state = "completed"
+                    paid_ids = set(quorum_outcome.paid_providers())
+                    dis = quorum_outcome.dissenting_providers()
+                    rec.detail = (
+                        f"quorum {quorum_outcome.agreement_count}/"
+                        f"{len(consortium.members)} agreed"
+                        + (f"; dissenters unpaid: {dis}" if dis
+                           else ""))
+            else:
+                if exec_result.combined_result_bytes is not None:
+                    rec.result_b64 = base64.b64encode(
+                        exec_result.combined_result_bytes,
+                    ).decode("ascii")
+                    rec.result_hash_hex = exec_result.combined_result_hash
+                rec.state = (
+                    "completed" if not exec_result.failed_members
+                    else "completed_partial"
+                )
+                rec.detail = (
+                    f"consortium {len(successful)}/{consortium.size} ok, "
+                    f"mode={consortium.sharding_mode}"
+                )
         except Exception as e:
             rec.state = "failed"
             rec.detail = f"runtime_error: {type(e).__name__}: {e}"
+            paid_ids = None
+            quorum_outcome = None
 
         # Split escrow across the consortium members proportionally
         # to each member's bid (so a higher-quality member earns more
         # for the same job, exactly as the auction priced it). Failed
         # members get nothing; their shares are auto-refunded to the
         # buyer's available balance by split_release_to_consortium.
+        # For quorum-replicate, ONLY the agreeing majority is paid.
         successful_members: List[Any] = []
         if rec.state in ("completed", "completed_partial"):
             successful_provider_ids = {
                 e.get("provider_id") for e in exec_result.per_member
                 if e.get("status") in ("executed", "completed", "ok")
             }
+            if paid_ids is not None:
+                successful_provider_ids &= paid_ids
             for m in consortium.members:
                 if m.provider_id in successful_provider_ids:
                     successful_members.append((m.provider_id, m.bid.price_usd))
@@ -1101,6 +1198,25 @@ class JobsService:
             rec, provider_wallet_id="",
             consortium_members=successful_members or None,
         )
+
+        # HG21 — detection becomes economics: dissenters proved wrong
+        # by the accepted majority lose stake to the honest voters.
+        # Fail-open: an economics error never corrupts the settled job.
+        econ = getattr(self, "economics", None)
+        if econ is not None and quorum_outcome is not None:
+            from decimal import Decimal
+            try:
+                prices = [Decimal(str(m.bid.price_usd))
+                          for m in consortium.members]
+                mean_price = (sum(prices) / len(prices)).quantize(
+                    Decimal("0.00000001"))
+                rec.quorum_economics = econ.record_quorum_outcome(
+                    quorum_outcome, job_id=rec.job_id,
+                    job_price_usd=mean_price)
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "economic layer failed for %s: %s", rec.job_id, e)
 
         rec.completed_at_unix = time.time()
         total = rec.completed_at_unix - rec.submitted_at_unix

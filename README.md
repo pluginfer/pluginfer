@@ -175,9 +175,12 @@ are proven, mitigated, or open.
   that still meets your cost, latency, quality, and privacy limits;
   your own machine wins when it's the best fit, so work only leaves
   home when a peer is genuinely better.
-- **Quorum verification (K-of-N)** — run the same job on K independent
-  nodes (default 3) and majority-vote the result, so one lying node
-  can't corrupt the answer. The honest fix for untrusted compute.
+- **Quorum verification (K-of-N)** — add `{"quorum_n": 3}` to any job
+  and it runs on 3 independent nodes with the result majority-voted:
+  one lying node can't corrupt the answer, ONLY the agreeing majority
+  is paid (dissenters' shares refund to you), and a no-majority
+  dispute refunds you in full. The honest fix for untrusted compute —
+  you pay for the redundancy, and we say so.
 - **Stake & slashing — cheating is unprofitable, not just detectable** —
   providers bond real ledger money (`POST /v1/stake`); a dissenter
   proved wrong by an accepted quorum majority is slashed (job price ×

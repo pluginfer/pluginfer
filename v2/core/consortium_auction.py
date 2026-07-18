@@ -45,7 +45,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from .providers import Auction, AuctionResult, Bid, JobSpec, Provider
 
@@ -218,6 +218,20 @@ def select_consortium(
     bids: List[Bid] = []
     rejected: List[Dict[str, Any]] = []
     for p in auction.providers:
+        # HG21: the economic layer's gate applies to consortium
+        # membership exactly as it does to single-winner bidding —
+        # a quarantined or under-bonded provider must not slip into a
+        # quorum through the side door.
+        if auction.eligibility_fn is not None:
+            pid = getattr(p, "provider_id", "?")
+            try:
+                ok, why = auction.eligibility_fn(pid)
+            except Exception as e:
+                ok, why = True, f"eligibility check errored: {e}"
+            if not ok:
+                rejected.append({"provider_id": pid,
+                                 "reason": f"ineligible: {why}"})
+                continue
         try:
             b = p.bid(job)
         except Exception as e:
@@ -396,7 +410,12 @@ def execute_consortium(
         getattr(p, "provider_id", "?"): p for p in auction.providers
     }
     exec_result = ConsortiumExecution(consortium=consortium)
-    parts: List[bytes] = []
+    # (provider_id, blob) PAIRS — never a bare list zipped against
+    # consortium.members: a member that returned no bytes would shift
+    # every later blob onto the wrong provider, and once slashing
+    # consumes dissenter attribution, misattribution punishes an
+    # honest node.
+    parts: List[Tuple[str, bytes]] = []
     for member in consortium.members:
         provider = pid_to_provider.get(member.provider_id)
         if provider is None:
@@ -429,7 +448,7 @@ def execute_consortium(
         b64 = out.get("result_bytes") or out.get("result_bytes_b64")
         if b64:
             try:
-                parts.append(base64.b64decode(b64))
+                parts.append((member.provider_id, base64.b64decode(b64)))
             except Exception:
                 pass
     if parts:
@@ -437,16 +456,24 @@ def execute_consortium(
             # Byzantine-tolerant: every member ran the same job;
             # winner is the majority-hash of result_bytes. Dissenters
             # get appended to failed_members so the slashing
-            # pipeline can act on them.
+            # pipeline can act on them. Hashes are RECOMPUTED from the
+            # actual bytes (never trusted from the provider's own
+            # report) and stamped back onto per_member as
+            # `result_hash_computed` — the money/economics verdict
+            # reads only that field.
             from collections import Counter
             hash_counter: Counter = Counter()
             hash_to_bytes: Dict[str, bytes] = {}
             hash_to_providers: Dict[str, List[str]] = {}
-            for member, blob in zip(consortium.members, parts):
+            for pid, blob in parts:
                 h = hashlib.sha256(blob).hexdigest()
                 hash_counter[h] += 1
                 hash_to_bytes[h] = blob
-                hash_to_providers.setdefault(h, []).append(member.provider_id)
+                hash_to_providers.setdefault(h, []).append(pid)
+                for entry in exec_result.per_member:
+                    if entry.get("provider_id") == pid:
+                        entry["result_hash_computed"] = h
+                        break
             if hash_counter:
                 winning_hash, winning_count = hash_counter.most_common(1)[0]
                 threshold = (len(parts) // 2) + 1
@@ -472,7 +499,8 @@ def execute_consortium(
             # Data-parallel / diloco concat. The aggregator decides
             # whether to use the bytes directly or to interpret them
             # as gradient shards.
-            combined = b"\n----PLUGINFER-SHARD----\n".join(parts)
+            combined = b"\n----PLUGINFER-SHARD----\n".join(
+                blob for _, blob in parts)
             exec_result.combined_result_bytes = combined
             exec_result.combined_result_hash = hashlib.sha256(combined).hexdigest()
     return exec_result

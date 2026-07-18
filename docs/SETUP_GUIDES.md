@@ -300,3 +300,20 @@ raises its required stake. Operators can make a minimum bond mandatory
 for ALL bidding with `PLUGINFER_REQUIRE_STAKE=1` (off by default so
 solo/dev nodes keep working). Testnet economics apply: stakes are the
 same testnet-USD accruals as every other balance.
+
+### Quorum on a live job (buyer opt-in)
+
+```sh
+curl -X POST http://127.0.0.1:8100/v1/jobs \
+  -H "Content-Type: application/json" \
+  -d "{\"kind\": \"compute.echo\", \"payload\": {\"x\": 1, \"quorum_n\": 3},
+       \"cost_ceiling_usd\": 1.0, \"latency_ceiling_ms\": 30000}"
+```
+
+`quorum_n: N` fans the job out to the N best bids and majority-votes
+the result. You pay for all N executions (that is the price of not
+trusting one node — stated, not hidden), but only the agreeing
+majority is paid; dissenters and non-responders refund their share to
+you, and a no-majority dispute refunds everything. Dissenters with a
+bond get slashed (guide 17). Too few providers → the job runs
+single-winner with an honest note instead of failing.
