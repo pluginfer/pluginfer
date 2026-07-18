@@ -1,45 +1,53 @@
 # Pluginfer Quickstart (5 minutes)
 
-This guide gets you from zero to a running Pluginfer node and a first
-signed compute receipt on the chain.
-
-> Tested fresh on Ubuntu 22.04, macOS 14, Windows 11 Pro.
+Zero to a running node with a browser control panel, free testnet
+credits, and a first signed job.
 
 ## 1. Install
 
-### Linux (Debian / Ubuntu)
+Grab the latest release from
+<https://github.com/pluginfer/pluginfer/releases/latest>:
 
-```sh
-curl -L https://github.com/pluginfer/pluginfer/releases/latest/download/pluginfer_amd64.deb -o pluginfer.deb
-sudo dpkg -i pluginfer.deb
-```
-
-### macOS
-
-Download the latest signed `.pkg` from
-https://github.com/pluginfer/pluginfer/releases/latest, double-click,
-follow the wizard.
-
-### Windows
-
-Download the latest `Pluginfer-*-Setup.exe`, run it. SmartScreen will
-trust an EV-signed installer immediately.
+- **Windows** — `Pluginfer-<version>-Setup.exe`. The installer is not
+  yet Authenticode-signed, so SmartScreen will warn: "More info →
+  Run anyway". Verify the download instead via the release's signed
+  `manifest.json` (see [Signing setup](SIGNING_SETUP.md)). A Start
+  Menu shortcut ("Pluginfer") is created.
+- **Linux (Debian/Ubuntu)** — `pluginfer_<version>_amd64.deb`, then
+  `sudo dpkg -i pluginfer_<version>_amd64.deb`.
+- **macOS** — `Pluginfer-<version>.pkg` (unsigned for now — right-click
+  → Open).
+- **From source** — `git clone`, `cd pluginfer/v2`,
+  `pip install -r requirements.txt`.
 
 ## 2. Run
 
 ```sh
-pluginfer start --role provider
+pluginfer up          # from source: python pluginfer.py up
 ```
 
-You should see:
+Zero config: the node picks a port, creates its wallet, detects a
+local model runtime if you have one (Ollama etc. — honest echo mode
+otherwise), and opens the **browser control panel** — status, earnings,
+and buttons for everything below. `--share` additionally makes the
+node reachable by the whole mesh through a free auto-tunnel.
 
-```
-[pluginfer] Node started. Wallet: pf1abc...xyz
-[pluginfer] Bootstrapping from seeds: 1 / 1 reachable
-[pluginfer] Joined mesh. Peers: 1. Listening for jobs.
+## 3. Get free testnet credits
+
+Click **Get free test credits** on the panel, or:
+
+```sh
+curl -X POST http://127.0.0.1:8100/v1/testnet/faucet \
+  -H "Content-Type: application/json" -d '{"wallet_id": "me"}'
 ```
 
-## 3. Submit a job (from another machine, or the same one)
+One-time starter balance per wallet. Testnet economics, stated
+plainly: balances are real, persistent accounting but not redeemable
+for cash; there is **no token, ever** — the ledger is plain USD.
+
+## 4. Submit a job
+
+From the panel ("Try it"), or from code:
 
 ```sh
 pip install pluginfer
@@ -48,60 +56,38 @@ pip install pluginfer
 ```python
 from pluginfer import Pluginfer
 
-with Pluginfer(api_key="pf_test_local",  # local node accepts the literal "pf_test_local"
-               base_url="http://localhost:8100") as p:
+with Pluginfer(base_url="http://localhost:8100") as p:
     job = p.jobs.submit(
         kind="llm.completion",
-        payload={"prompt": "What is the capital of France?", "max_tokens": 16},
+        payload={"prompt": "What is the capital of France?"},
         cost_ceiling_usd=0.05,
         latency_ceiling_ms=10_000,
     )
-    print("submitted:", job.job_id)
     final = p.jobs.wait_for(job.job_id, timeout_sec=30)
-    print("state:", final.state.state)
-    print("result:", p.jobs.decode_result(p.jobs.result(job.job_id)))
+    print(final.state.state)
 ```
 
-## 4. Verify the receipt on the chain
+Every completed job carries an Ed25519-signed receipt. Want the
+answer verified across independent nodes? Add `"quorum_n": 3` to the
+payload — the result is majority-voted and only the agreeing majority
+is paid ([guide](SETUP_GUIDES.md)).
+
+## 5. Audit the money yourself
 
 ```sh
-pluginfer chain receipt <job_id>
+curl http://127.0.0.1:8100/v1/ledger/verify
 ```
 
-Returns:
-
-```
-job_id: <id>
-provider: pf1...
-result_hash: <sha256>
-provider_sig: <verified ✓>
-on-chain block: 11,432
-payment: 0.0003 PLG -> pf1...
-```
-
-## 5. (Provider) See your balance grow
-
-```sh
-pluginfer wallet balance
-```
+Every balance is recomputed from its full entry history — tampering
+or deletion is detected and blocks payouts automatically.
 
 ## Troubleshooting
 
-| Symptom                           | Likely cause                                                      |
-| --------------------------------- | ---------------------------------------------------------------- |
-| `bootstrap: 0/0 reachable`        | No seed nodes configured. See `/etc/pluginfer/config.yml`.       |
-| `auction: no provider matched`    | Cost ceiling too low; raise `cost_ceiling_usd`.                  |
-| `result_hash mismatch`            | Provider returned tampered output -- refund eligible. Report it. |
-| `429 rate_limited`                | API key throttled; wait `Retry-After` seconds.                   |
-| Windows SmartScreen blocks `.exe` | Wait for EV cert reputation to build, or use the OV cert.        |
+| Symptom                        | Likely cause                                              |
+| ------------------------------ | --------------------------------------------------------- |
+| `auction: no provider matched` | Cost ceiling too low; raise `cost_ceiling_usd`.           |
+| Faucet returns 409             | That wallet already got its one-time grant.               |
+| Panel shows "local-only"       | Run with `--share` to become reachable by the mesh.       |
+| SmartScreen blocks the .exe    | Expected while installers are unsigned — verify the signed `manifest.json` instead. |
 
-## Uninstall
-
-```sh
-sudo dpkg -r pluginfer    # Linux
-sudo /Applications/Pluginfer.app/Uninstall.command   # macOS
-# Windows: Settings -> Apps -> Pluginfer -> Uninstall
-```
-
-Wallets at `~/.config/pluginfer/wallet.pem` are NOT deleted by
-default -- back them up if you uninstall on the user's only machine.
+Per-feature guides for everything else: [SETUP_GUIDES.md](SETUP_GUIDES.md).

@@ -1,9 +1,12 @@
 # Pluginfer architecture
 
-Pluginfer is a peer-to-peer GPU compute marketplace with crypto-native
-economics. This doc traces the full request path from a Python SDK
-call to an on-chain settlement, so a new contributor can hold the
-whole system in their head.
+Pluginfer is a peer-to-peer GPU compute marketplace. Money is a plain
+**USD accrual ledger** (there is no token, ever); an internal
+test-chain provides the settlement/provenance substrate described
+below, whose "PLG" units are internal accounting, not a public asset.
+This doc traces the full request path from a Python SDK call to
+settlement, so a new contributor can hold the whole system in their
+head.
 
 ## Layers
 
@@ -130,7 +133,8 @@ across continents the same way it works over loopback.
   `pluginfer_auction_duration_seconds`,
   `pluginfer_peers_connected`,
   `pluginfer_chain_height`,
-  `pluginfer_balance_plg`,
+  `pluginfer_balance_plg` (legacy test-chain units — an internal
+  gauge, not a token),
   `pluginfer_uptime_seconds`.
 - `core/structured_logging.py` -- one JSON object per record, with
   per-field redaction of secrets (CWE-532 defence in depth).

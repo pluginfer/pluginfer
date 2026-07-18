@@ -73,7 +73,9 @@ Full setup guides for each item: [docs/SETUP_GUIDES.md](docs/SETUP_GUIDES.md).
 | **Stake & slashing** | Providers bond real ledger money; a dissenter proved wrong by the majority loses stake to the honest voters — cheating is unprofitable, not just detectable |
 | **Free testnet, no token ever** | Faucet grants starter credits; the ledger is plain USD and audits itself |
 | **Python & JS SDKs** | Typed clients for jobs, streaming, wallets — both entry points tested |
-| **Consortium jobs** | Too big for one node → split across the N best providers, each paid its share |
+| **Consortium jobs** | Too big for one node → split across the N best providers (run concurrently), each paid its share |
+| **Native TLS** | Gateway and node serve HTTPS directly (`gencert` helper included); half-configured TLS refuses to start |
+| **Kubernetes recipes** | `v2/deploy/k8s/` manifests for the devserver + mesh seed, straight from the public Docker images |
 | **Disconnect-proof streaming** | SSE with delta cursors — reconnect and resume, no lost or double-billed tokens |
 | **Failover & hot migration** | A provider dying mid-job doesn't kill the job |
 | **Attestation & encryption** | Hardware challenges, a TEE path for private jobs, encrypted payloads |
@@ -214,8 +216,12 @@ are proven, mitigated, or open.
   keyed peer on another network formed the mesh and cleared a signed
   job. Honest scope: this is one shared symmetric key (the API-key trust
   model) — it keeps strangers out but has no per-node identity or
-  revocation yet, and it requires TLS transport (`--share` tunnels are
-  https; put a TLS-terminating proxy in front of a datacenter node).
+  revocation yet, and it requires TLS transport. Three supported ways:
+  `--share` tunnels are already https, a TLS-terminating proxy works,
+  or serve HTTPS **natively** — `python -m governance.tls gencert`
+  mints a cert and `PLUGINFER_NODE_TLS_CERT/_KEY` turn it on
+  (half-configured TLS refuses startup rather than serving the swarm
+  key over plaintext).
 
 Per-feature setup guides — exact commands for everything below —
 live in [docs/SETUP_GUIDES.md](docs/SETUP_GUIDES.md).

@@ -1,8 +1,16 @@
 # Pluginfer REST API reference (v1)
 
-Base URL (production): `https://api.pluginfer.network`
-OpenAPI spec: `GET /openapi.json`
-Interactive docs: `GET /docs`
+Base URL: your own node — `http://127.0.0.1:8100` by default
+(`pluginfer up`). There is no hosted cloud API; every deployment is
+self-hosted.
+OpenAPI spec: `GET /openapi.json` · Interactive docs: `GET /docs`
+
+> **Note on units:** endpoints marked *(legacy chain)* belong to the
+> internal test-chain surface whose accounting unit is "PLG" — an
+> internal ledger unit, **not** a public token (there is no token,
+> ever). The live money surface is the **USD** ledger on the node:
+> `/v1/testnet/faucet`, `/v1/ledger/*`, `/v1/stake/*`,
+> `/v1/economics/*` — see [SETUP_GUIDES](SETUP_GUIDES.md).
 
 ## Auth
 
@@ -65,8 +73,10 @@ Server-Sent Events stream of state transitions. Events:
 ### `DELETE /v1/jobs/{id}` (auth required)
 Cancels a job that hasn't reached a terminal state.
 
-### `GET /v1/wallet/balance` (auth required)
-Returns `{address, balance_plg, pending_plg, chain_height}`.
+### `GET /v1/wallet/balance` (auth required) *(legacy chain)*
+Returns `{address, balance_plg, pending_plg, chain_height}` — internal
+test-chain units, not money; the USD ledger lives at
+`/v1/ledger/wallets/{id}`.
 
 ### `GET /v1/providers` (auth required)
 Returns the registered provider directory.
