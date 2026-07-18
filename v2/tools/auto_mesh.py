@@ -1614,7 +1614,16 @@ async def _run(args) -> None:
         node_id, my_ip, my_port, args.seed_host, args.seed_port,
         my_pubkey.splitlines()[1][:32] + "..",
     )
-    config = uvicorn.Config(app, host="0.0.0.0", port=my_port, log_level="warning")
+    # HG22 transport leg: PLUGINFER_NODE_TLS_CERT/_KEY serve the node
+    # over HTTPS directly (mint a pilot cert: `python -m governance.tls
+    # gencert <dir>`). Half-configured TLS refuses startup — better a
+    # loud crash than a swarm key on a plaintext wire.
+    from governance.tls import tls_kwargs
+    _ssl = tls_kwargs("PLUGINFER_NODE")
+    if _ssl:
+        logger.info("TLS enabled: node serves https on port %d", my_port)
+    config = uvicorn.Config(app, host="0.0.0.0", port=my_port,
+                            log_level="warning", **_ssl)
     server = uvicorn.Server(config)
 
     bootstrap_peers = list(args.gossip_bootstrap or [])

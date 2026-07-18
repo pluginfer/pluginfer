@@ -1,0 +1,71 @@
+# Pluginfer devserver (API + gateway shim) on Kubernetes.
+#
+#   kubectl apply -f devserver.yaml
+#
+# Image is public: ghcr.io/pluginfer/pluginfer-devserver. Pin a version
+# tag (vX.Y.Z) in production — :latest is for kicking tires.
+#
+# Honest scope: this is a single-replica recipe. The budget/receipt
+# state is a per-pod volume — running MULTIPLE replicas would give each
+# its own ledger (split-brain spend accounting), so replicas stays 1
+# until the shared-state backend lands (tracked in AUDIT.md). Scale
+# READ traffic with a cache in front, not with replicas.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pluginfer-devserver
+  labels:
+    app: pluginfer-devserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pluginfer-devserver
+  template:
+    metadata:
+      labels:
+        app: pluginfer-devserver
+    spec:
+      containers:
+        - name: devserver
+          image: ghcr.io/pluginfer/pluginfer-devserver:latest
+          ports:
+            - containerPort: 11434
+          env:
+            - name: PLUGINFER_DEV_PORT
+              value: "11434"
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 11434
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 11434
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: state
+              mountPath: /app/state
+      volumes:
+        - name: state
+          emptyDir: {}   # swap for a PVC to keep receipts across restarts
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pluginfer-devserver
+spec:
+  selector:
+    app: pluginfer-devserver
+  ports:
+    - port: 11434
+      targetPort: 11434

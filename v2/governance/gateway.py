@@ -1790,7 +1790,18 @@ def main() -> int:
     from governance import BANNER
     print(BANNER)
     port = int(os.environ.get("PLUGINFER_GW_PORT", "8788"))
-    uvicorn.run(app, host=host, port=port)
+    # HG22 transport leg: PLUGINFER_GW_TLS_CERT/_KEY serve HTTPS
+    # directly (mint a pilot cert with `python -m governance.tls
+    # gencert <dir>`). Half-configured TLS refuses startup.
+    from governance.tls import TLSConfigError, tls_kwargs
+    try:
+        ssl = tls_kwargs("PLUGINFER_GW")
+    except TLSConfigError as e:
+        print(f"REFUSING to start: {e}")
+        return 4
+    if ssl:
+        print(f"TLS: serving https on {host}:{port}")
+    uvicorn.run(app, host=host, port=port, **ssl)
     return 0
 
 

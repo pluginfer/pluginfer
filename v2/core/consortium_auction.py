@@ -416,9 +416,49 @@ def execute_consortium(
     # consumes dissenter attribution, misattribution punishes an
     # honest node.
     parts: List[Tuple[str, bytes]] = []
-    for member in consortium.members:
+    # Members execute CONCURRENTLY (one thread each, bounded by the
+    # job's latency ceiling). Sequential execution made K-redundancy
+    # cost K× latency — the exact tax that keeps buyers from opting
+    # into quorum. Results are collected back IN MEMBER ORDER so
+    # data-parallel shard concatenation stays deterministic.
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+    # 30 s floor protects long generations; operators (and hermetic
+    # tests) can override with PLUGINFER_CONSORTIUM_MEMBER_TIMEOUT_S.
+    member_timeout_s = (
+        float(os.environ.get("PLUGINFER_CONSORTIUM_MEMBER_TIMEOUT_S",
+                             "0") or 0)
+        or max(30.0, job.latency_ceiling_ms / 1000.0))
+
+    def _one(member):
         provider = pid_to_provider.get(member.provider_id)
         if provider is None:
+            return member, None, "provider_missing"
+        try:
+            return member, provider.execute(job, member.bid), None
+        except Exception as e:
+            return member, None, f"{type(e).__name__}: {e}"
+
+    pool = ThreadPoolExecutor(max_workers=max(1, len(consortium.members)))
+    try:
+        futures = [pool.submit(_one, m) for m in consortium.members]
+        collected = []
+        for member, fut in zip(consortium.members, futures):
+            try:
+                collected.append(fut.result(timeout=member_timeout_s))
+            except Exception:
+                # Timeout (or executor failure): the member simply
+                # doesn't vote. Its thread may still be running — we
+                # can't kill threads — but its result is discarded.
+                collected.append((member, None, "timeout"))
+    finally:
+        # NEVER wait on a timed-out worker (the run_isolated lesson —
+        # a wait-on-shutdown here would hang the whole job for as long
+        # as the slowest stuck member).
+        pool.shutdown(wait=False, cancel_futures=True)
+
+    for member, out, err in collected:
+        if err == "provider_missing":
             exec_result.failed_members.append(member.provider_id)
             exec_result.per_member.append({
                 "provider_id": member.provider_id,
@@ -426,15 +466,13 @@ def execute_consortium(
                 "status": "provider_missing",
             })
             continue
-        try:
-            out = provider.execute(job, member.bid)
-        except Exception as e:
+        if err is not None or out is None:
             exec_result.failed_members.append(member.provider_id)
             exec_result.per_member.append({
                 "provider_id": member.provider_id,
                 "rank": member.rank,
                 "status": "failed",
-                "reason": f"{type(e).__name__}: {e}",
+                "reason": err or "no_output",
             })
             continue
         exec_result.per_member.append({

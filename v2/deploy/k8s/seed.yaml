@@ -1,0 +1,58 @@
+# Pluginfer seed node (mesh bootstrap registry + UDP punch) on
+# Kubernetes — the piece a private enterprise mesh points its sites at
+# (PLUGINFER_GOSSIP_BOOTSTRAP_PEER=<this service>).
+#
+#   kubectl apply -f seed.yaml
+#
+# The seed speaks TCP (registry) AND UDP (NAT punch) on the same port,
+# so the Service exposes both. Pin a version tag in production.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pluginfer-seed
+  labels:
+    app: pluginfer-seed
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pluginfer-seed
+  template:
+    metadata:
+      labels:
+        app: pluginfer-seed
+    spec:
+      containers:
+        - name: seed
+          image: ghcr.io/pluginfer/pluginfer-seed:latest
+          ports:
+            - containerPort: 9000
+              protocol: TCP
+            - containerPort: 9000
+              protocol: UDP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pluginfer-seed
+spec:
+  # LoadBalancer so nodes OUTSIDE the cluster (other datacenters, home
+  # providers) can bootstrap; use ClusterIP for an in-cluster-only mesh.
+  type: LoadBalancer
+  selector:
+    app: pluginfer-seed
+  ports:
+    - name: registry-tcp
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+    - name: punch-udp
+      port: 9000
+      targetPort: 9000
+      protocol: UDP

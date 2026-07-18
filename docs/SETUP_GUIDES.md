@@ -317,3 +317,36 @@ majority is paid; dissenters and non-responders refund their share to
 you, and a no-majority dispute refunds everything. Dissenters with a
 bond get slashed (guide 17). Too few providers → the job runs
 single-winner with an honest note instead of failing.
+
+## 18. Native TLS (gateway + node)
+
+Both servers can serve HTTPS directly — no reverse proxy needed for a
+pilot or a private mesh (where the swarm key travels as a header and
+must never cross a plaintext wire):
+
+```sh
+python -m governance.tls gencert C:\pluginfer-certs my-node
+set PLUGINFER_NODE_TLS_CERT=C:\pluginfer-certs\node-cert.pem
+set PLUGINFER_NODE_TLS_KEY=C:\pluginfer-certs\node-key.pem
+pluginfer up          # node now serves https
+```
+
+Gateway equivalent: `PLUGINFER_GW_TLS_CERT` / `PLUGINFER_GW_TLS_KEY`.
+Half-configured TLS (cert without key, missing file) refuses startup —
+never silent plaintext. Honest scope: a self-signed cert encrypts the
+wire but proves no identity — clients must pin it; public deployments
+should use a real certificate, a TLS proxy, or the `--share` tunnel
+(already https).
+
+## 19. Kubernetes (devserver + seed)
+
+```sh
+kubectl apply -f v2/deploy/k8s/devserver.yaml   # API/gateway, port 11434
+kubectl apply -f v2/deploy/k8s/seed.yaml        # mesh bootstrap, TCP+UDP 9000
+```
+
+Point each site''s nodes at the seed Service
+(`PLUGINFER_GOSSIP_BOOTSTRAP_PEER=<seed-host>:9000`) for a private
+multi-datacenter mesh. Honest scope stated in the manifests: the
+devserver is single-replica until a shared-state backend lands
+(replicas would each keep their own ledger).

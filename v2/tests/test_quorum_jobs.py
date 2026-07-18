@@ -258,6 +258,60 @@ def test_quarantined_provider_cannot_join_quorum():
         ledger.get_wallet("p-banned").available_usd == D("0")
 
 
+def test_members_execute_concurrently_not_sequentially():
+    """3 members × 0.4 s each must take ~0.4 s wall, not ~1.2 s —
+    sequential execution was the tax that made quorum impractical."""
+    import time as _time
+
+    class _Slow(_Worker):
+        def execute(self, job, bid):
+            _time.sleep(0.4)
+            return super().execute(job, bid)
+
+    svc, ledger, _ = _stack([_Slow("p1"), _Slow("p2"), _Slow("p3")])
+
+    async def flow():
+        t0 = _time.monotonic()
+        rec = await _submit(svc)
+        rec = await _wait(svc, rec.job_id, deadline_s=10.0)
+        return rec, _time.monotonic() - t0
+
+    rec, wall = _run(flow())
+    assert rec.state == "completed", rec.detail
+    assert wall < 1.0, f"members ran sequentially ({wall:.2f}s)"
+
+
+def test_stuck_member_times_out_and_does_not_hang_the_job(monkeypatch):
+    """A member that never returns is dropped at the member timeout;
+    the healthy majority still wins and the job never hangs on the
+    stuck thread (shutdown never waits on it)."""
+    import threading as _threading
+    import time as _time
+    monkeypatch.setenv("PLUGINFER_CONSORTIUM_MEMBER_TIMEOUT_S", "1")
+
+    class _Stuck(_Worker):
+        def execute(self, job, bid):
+            _threading.Event().wait(20)      # far past the timeout
+            return super().execute(job, bid)
+
+    svc, ledger, _ = _stack(
+        [_Worker("p-good1"), _Worker("p-good2"), _Stuck("p-stuck")])
+
+    async def flow():
+        t0 = _time.monotonic()
+        rec = await _submit(svc)
+        rec = await _wait(svc, rec.job_id, deadline_s=10.0)
+        return rec, _time.monotonic() - t0
+
+    rec, wall = _run(flow())
+    assert rec.state == "completed", rec.detail
+    assert rec.result_hash_hex == hashlib.sha256(GOOD).hexdigest()
+    assert "2/3 agreed" in rec.detail
+    assert wall < 8.0, f"job waited on the stuck member ({wall:.1f}s)"
+    # The stuck member didn't vote and isn't paid.
+    assert ledger.get_wallet("alice").available_usd == D("99.50")
+
+
 def test_underfunded_quorum_fails_with_clear_message():
     svc, ledger, _ = _stack(
         [_Worker("p1"), _Worker("p2"), _Worker("p3")],

@@ -67,6 +67,13 @@ Section "Pluginfer" SecCore
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" \
         "NoRepair" 1
 
+    ; Start Menu shortcut — launches the node ("pluginfer up"), which
+    ; boots zero-config and opens the browser control panel. This is
+    ; the no-terminal path a non-technical user actually clicks.
+    CreateDirectory "$SMPROGRAMS\Pluginfer"
+    CreateShortcut "$SMPROGRAMS\Pluginfer\Pluginfer.lnk" \
+        "$INSTDIR\pluginfer.exe" "up" "$INSTDIR\pluginfer.exe" 0
+
     ; Register a Windows service via NSSM if present (deferred -- service
     ; install is the operator's choice, with a clear instruction at the
     ; finish page so the user opts in).
@@ -76,6 +83,8 @@ Section "Pluginfer" SecCore
 SectionEnd
 
 Section "Uninstall"
+    Delete "$SMPROGRAMS\Pluginfer\Pluginfer.lnk"
+    RMDir "$SMPROGRAMS\Pluginfer"
     Delete "$INSTDIR\uninstall.exe"
     RMDir /r "$INSTDIR"
     DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}"
